@@ -1,0 +1,11 @@
+{
+  "status": "planned-enforced-by-issue-1",
+  "xcode_version": "26.0.1",
+  "xcode_build": "17A400",
+  "ios_sdk_version": "26.0",
+  "ios_deployment_target": "26.0",
+  "swift_language_mode": "6",
+  "bundle_identifier": "com.infinityball.splitslip",
+  "targeted_device_family": "1",
+  "native_ipad_support": false
+}

@@ -1,0 +1,28 @@
+# Native build outputs and local IDE state
+.build/
+build/
+DerivedData/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+artifacts/
+coverage/
+.DS_Store
+# Local records and backups (fixtures belong under Tests/Fixtures)
+local-data/
+backups/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+# Never commit signing material or environment credentials
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision
+*.ipa
+*.xcarchive/
+# Temporary script caches
+__pycache__/
+*.pyc
