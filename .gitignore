@@ -1,28 +1,26 @@
-# Native build outputs and local IDE state
-.build/
-build/
+# macOS and Xcode local state
+.DS_Store
+__pycache__/
+*.pyc
 DerivedData/
-.swiftpm/
-*.xcuserstate
+build/
+.build/
 xcuserdata/
+*.xcuserstate
 *.xcresult
 artifacts/
 coverage/
-.DS_Store
-# Local records and backups (fixtures belong under Tests/Fixtures)
+# Local receipt data and generated exports, never synthetic tracked fixtures
 local-data/
-backups/
+exports/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
-# Never commit signing material or environment credentials
+# Signing/auth material
 .env
 .env.*
+!.env.example
 *.p8
 *.p12
 *.mobileprovision
-*.ipa
-*.xcarchive/
-# Temporary script caches
-__pycache__/
-*.pyc
+# Shared Xcode project/workspace, Package.resolved and test fixtures stay tracked

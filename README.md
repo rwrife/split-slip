@@ -4,7 +4,7 @@ Local-first iPhone receipt splitter for shared meals and purchases: assign items
 
 ## Status
 
-**Documentation/backlog scaffold only.** No Swift app, Xcode project, application tests, simulator result, signed archive, or TestFlight build exists yet. The milestones below and [PLAN.md](PLAN.md) define the implementation contract, not completed features.
+**Native bootstrap landed (issue #1); product features remain planned.** The repository now contains a real SwiftUI iPhone app, a shared `SplitSlip` scheme, the pure Swift `Packages/ReceiptDomain` package with contract tests, device-family/SDK guards, and pinned macOS CI that builds and launches the app in an iPhone simulator. No receipt-entry workflow, persistence, simulator journey beyond launch, signed archive, or TestFlight build exists yet. The milestones below and [PLAN.md](PLAN.md) define the remaining implementation contract, not completed features.
 
 ## Why / who
 
@@ -52,9 +52,7 @@ Accessibility: Dynamic Type through accessibility sizes, VoiceOver labels and re
 
 ## Development quickstart
 
-Currently: `git clone https://github.com/rwrife/split-slip.git`, then read `PLAN.md` and issues #1–#7. There is no build command yet; do not treat documentation checks as an app build.
-
-Issue #1 will add a reproducible native Xcode project/generator, a Swift package, and macOS CI. On a Mac verify `xcodebuild -version` and `xcrun --sdk iphoneos --show-sdk-version` against `toolchain.json` before following the actual committed build/test commands. A Linux executor may test a portable Swift domain package once it exists, but cannot substitute that for iOS simulator/UI/archive validation. Keep signing material out of git.
+Currently: `git clone https://github.com/rwrife/split-slip.git`, then read `PLAN.md` and issues #1–#7. The native bootstrap exists: see `docs/bootstrap-evidence.md` for what is verified and what is CI-pending. On a Mac run `Scripts/ci.sh "$(git rev-parse HEAD)"` after `Scripts/select_xcode.py --toolchain toolchain.json` resolves an exact Xcode 26.0.1 (17A400) / iOS SDK 26.0 installation; a missing pin is an environment blocker, never an excuse to use an older SDK. A Linux executor may run `python3 -m unittest discover -s Scripts/tests -v` and parse checks, but cannot substitute that for iOS simulator/UI validation. Keep signing material out of git.
 
 ## Milestones and distribution
 
