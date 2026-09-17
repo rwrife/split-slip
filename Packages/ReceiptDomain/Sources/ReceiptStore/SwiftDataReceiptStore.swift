@@ -51,7 +51,6 @@ public final class SnapshotRecord {
 /// snapshots are append-only (a second store of the same id is rejected).
 /// Unknown algorithm versions fail closed on read. Failed writes surface as
 /// `StoreFailure.writeFailed` after rollback, so previously stored bytes survive.
-@available(iOS 17.0, macOS 14.0, *)
 public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked Sendable {
     public let container: ModelContainer
 

@@ -8,7 +8,6 @@ import ReceiptDomain
 /// Persistence acceptance for issue #2: draft edits persist, a reopened store
 /// recovers them (restart), snapshots are immutable, and failures never wipe
 /// previously stored state. Temporary stores only, always torn down.
-@available(iOS 17.0, macOS 14.0, *)
 @Suite("Issue 2 SwiftData persistence", .serialized)
 struct SwiftDataStoreTests {
     private func temporaryStore() throws -> (SwiftDataReceiptStore, URL) {
