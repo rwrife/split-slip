@@ -12,7 +12,7 @@ public enum ReceiptLimits {
 }
 
 /// The only MVP currencies, all with exactly two decimal places.
-public enum SupportedCurrency: String, CaseIterable, Sendable {
+public enum SupportedCurrency: String, CaseIterable, Sendable, Codable {
     case usd = "USD"
     case eur = "EUR"
     case gbp = "GBP"
@@ -21,7 +21,7 @@ public enum SupportedCurrency: String, CaseIterable, Sendable {
 }
 
 /// Identity is deliberately separate from a participant's user-editable display name.
-public struct ParticipantIdentity: Hashable, Sendable {
+public struct ParticipantIdentity: Hashable, Sendable, Codable {
     public let id: UUID
     public var displayName: String
 
