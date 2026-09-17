@@ -54,7 +54,7 @@ struct SwiftDataStoreTests {
         draft.expectedTotal = try MinorAmount(parsing: "8.00")
         try reopened.saveDraft(draft)
         let recoveredAgain = try SwiftDataReceiptStore(url: url).loadDraft(id: draft.id)
-        #expect(recoveredAgain.expectedTotal == try MinorAmount(parsing: "8.00"))
+        #expect(recoveredAgain.expectedTotal == (try MinorAmount(parsing: "8.00")))
         #expect(recoveredAgain == draft)
     }
 
