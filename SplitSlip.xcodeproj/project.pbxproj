@@ -10,7 +10,8 @@
 		A10000000000000000000102 /* BootstrapHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000202 /* BootstrapHomeView.swift */; };
 		A10000000000000000000103 /* SplitSlipLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000203 /* SplitSlipLaunchTests.swift */; };
 		A10000000000000000000104 /* ReceiptDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000801 /* ReceiptDomain */; };
-		A10000000000000000000105 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000206 /* Assets.xcassets */; };
+		A10000000000000000000105 /* ReceiptStore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000802 /* ReceiptStore */; };
+		A10000000000000000000106 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000206 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,7 +37,7 @@
 		A10000000000000000000401 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A10000000000000000000104 /* ReceiptDomain in Frameworks */,);
+			files = (A10000000000000000000104 /* ReceiptDomain in Frameworks */, A10000000000000000000105 /* ReceiptStore in Frameworks */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A10000000000000000000402 /* Frameworks */ = {
@@ -96,7 +97,7 @@
 			buildRules = ();
 			dependencies = ();
 			name = SplitSlip;
-			packageProductDependencies = (A10000000000000000000801 /* ReceiptDomain */,);
+			packageProductDependencies = (A10000000000000000000801 /* ReceiptDomain */, A10000000000000000000802 /* ReceiptStore */,);
 			productName = SplitSlip;
 			productReference = A10000000000000000000204 /* SplitSlip.app */;
 			productType = "com.apple.product-type.application";
@@ -150,7 +151,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A10000000000000000000703 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000105 /* Assets.xcassets in Resources */,); runOnlyForDeploymentPostprocessing = 0;};
+		A10000000000000000000703 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000106 /* Assets.xcassets in Resources */,); runOnlyForDeploymentPostprocessing = 0;};
 		A10000000000000000000704 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
 /* End PBXResourcesBuildPhase section */
 
@@ -267,6 +268,7 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000801 /* ReceiptDomain */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000800 /* XCLocalSwiftPackageReference "Packages/ReceiptDomain" */; productName = ReceiptDomain;};
+		A10000000000000000000802 /* ReceiptStore */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000800 /* XCLocalSwiftPackageReference "Packages/ReceiptDomain" */; productName = ReceiptStore;};
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A10000000000000000000000 /* Project object */;

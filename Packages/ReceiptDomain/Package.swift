@@ -10,9 +10,11 @@ let package = Package(
     ],
     products: [
         .library(name: "ReceiptDomain", targets: ["ReceiptDomain"]),
+        .library(name: "ReceiptStore", targets: ["ReceiptStore"]),
     ],
     targets: [
         .target(name: "ReceiptDomain"),
-        .testTarget(name: "ReceiptDomainTests", dependencies: ["ReceiptDomain"]),
+        .target(name: "ReceiptStore", dependencies: ["ReceiptDomain"]),
+        .testTarget(name: "ReceiptDomainTests", dependencies: ["ReceiptDomain", "ReceiptStore"]),
     ]
 )
