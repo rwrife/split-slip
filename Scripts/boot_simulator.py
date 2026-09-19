@@ -12,7 +12,9 @@ from typing import Callable, Sequence
 
 
 class SimulatorBootError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, timed_out: bool = False) -> None:
+        super().__init__(message)
+        self.timed_out = timed_out
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -49,7 +51,7 @@ def run_logged(
             log.write(_text(error.output))
             message = f"{' '.join(command)} timed out after {timeout}s"
             log.write(f"{message}\n")
-            raise SimulatorBootError(message) from error
+            raise SimulatorBootError(message, timed_out=True) from error
         log.write(_text(result.stdout))
         if result.returncode != 0:
             message = f"{' '.join(command)} exited {result.returncode}"
@@ -67,6 +69,35 @@ def device_state(payload: dict, udid: str) -> str:
     raise SimulatorBootError(f"Selected simulator {udid} is missing from the device list")
 
 
+def _shutdown_best_effort(
+    udid: str,
+    log_path: Path,
+    *,
+    timeout: int,
+    runner: Runner,
+) -> None:
+    """Best-effort `simctl shutdown` to clear a wedged boot attempt.
+
+    Failures and timeouts here are logged and tolerated: the following boot
+    retry either succeeds or reports its own bounded error.
+    """
+    with log_path.open("a", encoding="utf-8") as log:
+        log.write(f"$ xcrun simctl shutdown {udid} (best-effort)\n")
+        log.flush()
+        try:
+            runner(
+                ["xcrun", "simctl", "shutdown", udid],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+            )
+            log.write("shutdown accepted\n")
+        except subprocess.TimeoutExpired:
+            log.write(f"xcrun simctl shutdown {udid} timed out after {timeout}s; ignoring\n")
+
+
 def boot_selected_simulator(
     udid: str,
     devices: dict,
@@ -78,22 +109,45 @@ def boot_selected_simulator(
 ) -> None:
     state = device_state(devices, udid)
     log_path.write_text(f"Selected {udid}; initial state is {state}\n", encoding="utf-8")
-    if state == "Booted":
-        with log_path.open("a", encoding="utf-8") as log:
-            log.write("Simulator is already Booted; skipping simctl boot.\n")
-    else:
+
+    def attempt_boot() -> None:
+        if state == "Booted":
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write("Simulator is already Booted; skipping simctl boot.\n")
+        else:
+            run_logged(
+                ["xcrun", "simctl", "boot", udid],
+                boot_timeout,
+                log_path,
+                runner=runner,
+            )
         run_logged(
-            ["xcrun", "simctl", "boot", udid],
-            boot_timeout,
+            ["xcrun", "simctl", "bootstatus", udid, "-b"],
+            bootstatus_timeout,
             log_path,
             runner=runner,
         )
-    run_logged(
-        ["xcrun", "simctl", "bootstatus", udid, "-b"],
-        bootstatus_timeout,
-        log_path,
-        runner=runner,
-    )
+
+    try:
+        attempt_boot()
+    except SimulatorBootError as error:
+        # Hosted runners sometimes hand out a simulator whose CoreSimulator
+        # boot wedges until the timeout (seat-weave PR #8/#9 measured this
+        # class of stall). One bounded shutdown + re-attempt absorbs it;
+        # a second timeout, or any non-timeout error, is fatal.
+        if not error.timed_out:
+            raise
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write("Boot stalled; shutting down and retrying boot once.\n")
+        _shutdown_best_effort(udid, log_path, timeout=30, runner=runner)
+        try:
+            attempt_boot()
+        except SimulatorBootError as retry_error:
+            if not retry_error.timed_out:
+                raise
+            raise SimulatorBootError(
+                f"{error} (retry after shutdown also timed out: {retry_error})"
+            ) from retry_error
 
 
 def capture_command(command: list[str], output: Path, timeout: int) -> int:
