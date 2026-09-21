@@ -43,7 +43,11 @@ final class SplitSlipJourneyTests: XCTestCase {
 
     @discardableResult
     private func revealText(_ text: String, timeout: TimeInterval = 12) -> Bool {
-        let element = app.staticTexts[text]
+        // List rows can merge label+value into one accessibility element
+        // ("Ana, 15.00"), so match by substring rather than exact text.
+        let element = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", text)
+        ).firstMatch
         if element.waitForExistence(timeout: 2) { return true }
         let deadline = Date().addingTimeInterval(timeout)
         var scrollDownFirst = true
