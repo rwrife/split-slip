@@ -4,7 +4,7 @@ Local-first iPhone receipt splitter for shared meals and purchases: assign items
 
 ## Status
 
-**Native bootstrap landed (issue #1); product features remain planned.** The repository now contains a real SwiftUI iPhone app, a shared `SplitSlip` scheme, the pure Swift `Packages/ReceiptDomain` package with contract tests, device-family/SDK guards, and pinned macOS CI that builds and launches the app in an iPhone simulator. No receipt-entry workflow, persistence, simulator journey beyond launch, signed archive, or TestFlight build exists yet. The milestones below and [PLAN.md](PLAN.md) define the remaining implementation contract, not completed features.
+**Issue #3 (manual entry → reviewed finalization) landed pending native CI evidence; later milestones remain planned.** The app now runs the real workflow: create/open drafts, currency + printed total + participants + manual lines and fee/discount adjustments, equal/weighted explicit recipient assignment, visible mismatch and unresolved rows, blocked finalization until invariants hold, immutable finalized snapshots with duplicate-to-correct, and a native UI journey test (execution recorded on the PR, not assumed). Reference images and workspace continuity (#4), backup/restore/export/deletion (#5), integrated regression + real iPhone evidence (#6), and signed release/TestFlight handoff (#7) remain planned. No payments, accounts, OCR or network features exist — by design. The milestones below and [PLAN.md](PLAN.md) define the implementation contract.
 
 ## Why / who
 

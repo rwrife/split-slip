@@ -7,11 +7,13 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000101 /* SplitSlipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000201 /* SplitSlipApp.swift */; };
-		A10000000000000000000102 /* BootstrapHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000202 /* BootstrapHomeView.swift */; };
-		A10000000000000000000103 /* SplitSlipLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000203 /* SplitSlipLaunchTests.swift */; };
+		A10000000000000000000102 /* SplitSlipRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000202 /* SplitSlipRootView.swift */; };
+		A10000000000000000000103 /* SplitSlipJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000203 /* SplitSlipJourneyTests.swift */; };
 		A10000000000000000000104 /* ReceiptDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000801 /* ReceiptDomain */; };
 		A10000000000000000000105 /* ReceiptStore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000802 /* ReceiptStore */; };
 		A10000000000000000000106 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000206 /* Assets.xcassets */; };
+		A10000000000000000000107 /* ReceiptEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000207 /* ReceiptEditorView.swift */; };
+		A10000000000000000000108 /* SplitSlipCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000803 /* SplitSlipCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,9 +28,10 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000201 /* SplitSlipApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitSlipApp.swift; sourceTree = "<group>"; };
-		A10000000000000000000202 /* BootstrapHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapHomeView.swift; sourceTree = "<group>"; };
-		A10000000000000000000203 /* SplitSlipLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitSlipLaunchTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000202 /* SplitSlipRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitSlipRootView.swift; sourceTree = "<group>"; };
+		A10000000000000000000203 /* SplitSlipJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitSlipJourneyTests.swift; sourceTree = "<group>"; };
 		A10000000000000000000206 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10000000000000000000207 /* ReceiptEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptEditorView.swift; sourceTree = "<group>"; };
 		A10000000000000000000204 /* SplitSlip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SplitSlip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000205 /* SplitSlipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SplitSlipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -37,7 +40,7 @@
 		A10000000000000000000401 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A10000000000000000000104 /* ReceiptDomain in Frameworks */, A10000000000000000000105 /* ReceiptStore in Frameworks */,);
+			files = (A10000000000000000000104 /* ReceiptDomain in Frameworks */, A10000000000000000000105 /* ReceiptStore in Frameworks */, A10000000000000000000108 /* SplitSlipCore in Frameworks */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A10000000000000000000402 /* Frameworks */ = {
@@ -62,7 +65,8 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000201 /* SplitSlipApp.swift */,
-				A10000000000000000000202 /* BootstrapHomeView.swift */,
+				A10000000000000000000202 /* SplitSlipRootView.swift */,
+				A10000000000000000000207 /* ReceiptEditorView.swift */,
 				A10000000000000000000206 /* Assets.xcassets */,
 			);
 			path = App;
@@ -70,7 +74,7 @@
 		};
 		A10000000000000000000502 /* UITests */ = {
 			isa = PBXGroup;
-			children = (A10000000000000000000203 /* SplitSlipLaunchTests.swift */,);
+			children = (A10000000000000000000203 /* SplitSlipJourneyTests.swift */,);
 			path = UITests;
 			sourceTree = "<group>";
 		};
@@ -97,7 +101,7 @@
 			buildRules = ();
 			dependencies = ();
 			name = SplitSlip;
-			packageProductDependencies = (A10000000000000000000801 /* ReceiptDomain */, A10000000000000000000802 /* ReceiptStore */,);
+			packageProductDependencies = (A10000000000000000000801 /* ReceiptDomain */, A10000000000000000000802 /* ReceiptStore */, A10000000000000000000803 /* SplitSlipCore */,);
 			productName = SplitSlip;
 			productReference = A10000000000000000000204 /* SplitSlip.app */;
 			productType = "com.apple.product-type.application";
@@ -161,14 +165,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000101 /* SplitSlipApp.swift in Sources */,
-				A10000000000000000000102 /* BootstrapHomeView.swift in Sources */,
+				A10000000000000000000102 /* SplitSlipRootView.swift in Sources */,
+				A10000000000000000000107 /* ReceiptEditorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A10000000000000000000702 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (A10000000000000000000103 /* SplitSlipLaunchTests.swift in Sources */,);
+			files = (A10000000000000000000103 /* SplitSlipJourneyTests.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
@@ -269,6 +274,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000801 /* ReceiptDomain */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000800 /* XCLocalSwiftPackageReference "Packages/ReceiptDomain" */; productName = ReceiptDomain;};
 		A10000000000000000000802 /* ReceiptStore */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000800 /* XCLocalSwiftPackageReference "Packages/ReceiptDomain" */; productName = ReceiptStore;};
+		A10000000000000000000803 /* SplitSlipCore */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000800 /* XCLocalSwiftPackageReference "Packages/ReceiptDomain" */; productName = SplitSlipCore;};
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A10000000000000000000000 /* Project object */;
