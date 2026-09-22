@@ -95,17 +95,25 @@ final class SplitSlipJourneyTests: XCTestCase {
         }
     }
 
-    /// Switch the editor's TabView to one of its tabs (issue #4 layout),
-    /// retrying the tap if a late layout pass made the first one a miss.
+    /// Switch the editor's TabView to one of its tabs (issue #4 layout).
+    /// Tab content can remain in the hierarchy (non-hittable) while another
+    /// tab is shown, so confirmation is by hittability of the destination
+    /// container, not mere existence. Tapping the already-selected tab is a
+    /// harmless no-op.
     private func openTab(_ name: String) {
         let container = name == "People" ? "editor.peopleTab" : "editor.receiptTab"
         let tab = app.tabBars.buttons[name]
         XCTAssertTrue(tab.waitForExistence(timeout: 10), "tab \(name) never appeared")
         for _ in 0..<3 {
-            if app.descendants(matching: .any)[container].exists { return }
             tab.tap()
-            if app.descendants(matching: .any)[container]
-                .waitForExistence(timeout: 5) { return }
+            let deadline = Date().addingTimeInterval(6)
+            while Date() < deadline {
+                // Either signal proves the switch: the tab bar item reports
+                // selected, or the destination container is hittable.
+                if (try? tab.isSelected) == true { return }
+                if (try? app.descendants(matching: .any)[container].isHittable) == true { return }
+                usleep(250_000)
+            }
         }
         XCTFail("tab \(name) never switched to \(container)")
     }
