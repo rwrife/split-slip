@@ -69,17 +69,43 @@ final class SplitSlipJourneyTests: XCTestCase {
         return false
     }
 
-    /// Tap, type, then commit deterministically: while any editor field has
-    /// focus a keyboard toolbar "Done" button exists; tapping it clears focus
-    /// (hiding the keyboard) before the next interaction.
+    /// Tap, type, then commit deterministically. The keyboard toolbar "Done"
+    /// button appears in some layouts; when it does not (TabView layout),
+    /// pressing Return triggers the field's `onSubmit` focus release. Then
+    /// wait for the keyboard to actually hide so tab-bar taps stay hittable.
     private func tapAndType(_ element: XCUIElement, text: String) {
         XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
         element.tap()
         element.typeText(text)
+        commitKeyboard(element)
+    }
+
+    private func commitKeyboard(_ element: XCUIElement) {
         let done = app.buttons["editor.dismissKeyboard"]
-        if done.waitForExistence(timeout: 3) {
+        if done.waitForExistence(timeout: 2), (try? done.isHittable) == true {
             done.tap()
+        } else if app.keyboards.count > 0 {
+            element.typeText("\n")
         }
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, app.keyboards.count > 0 {
+            usleep(200_000)
+        }
+    }
+
+    /// Switch the editor's TabView to one of its tabs (issue #4 layout),
+    /// retrying the tap if a late layout pass made the first one a miss.
+    private func openTab(_ name: String) {
+        let container = name == "People" ? "editor.peopleTab" : "editor.receiptTab"
+        let tab = app.tabBars.buttons[name]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10), "tab \(name) never appeared")
+        for _ in 0..<3 {
+            if app.descendants(matching: .any)[container].exists { return }
+            tab.tap()
+            if app.descendants(matching: .any)[container]
+                .waitForExistence(timeout: 5) { return }
+        }
+        XCTFail("tab \(name) never switched to \(container)")
     }
 
     private func freshLaunch() {
@@ -87,14 +113,6 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.launch()
         containerExists("home.root")
         XCTAssertTrue(revealText("No receipts yet. Create one to get started."))
-    }
-
-    /// Switch the editor's TabView to one of its tabs (issue #4 layout).
-    private func openTab(_ name: String) {
-        let tab = app.tabBars.buttons[name]
-        XCTAssertTrue(tab.waitForExistence(timeout: 10), "tab \(name) never appeared")
-        tab.tap()
-        containerExists(name == "People" ? "editor.peopleTab" : "editor.receiptTab", timeout: 5)
     }
 
     /// Enter currency stays USD; add two people, one line, and reach a
@@ -139,8 +157,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(total), "expected-total field never became hittable")
         total.tap(withNumberOfTaps: 3, numberOfTouches: 1)
         total.typeText("30.00")
-        let done = app.buttons["editor.dismissKeyboard"]
-        if done.waitForExistence(timeout: 3) { done.tap() }
+        commitKeyboard(total)
         XCTAssertTrue(revealText("Rows match the entered total"))
         XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
 
@@ -152,9 +169,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         selectAna.tap()
         XCTAssertTrue(app.staticTexts["editor.bar.selection"].waitForExistence(timeout: 5)
                       || revealText("Person: Ana"))
-        XCTAssertTrue(app.descendants(matching: .any)["editor.person.Ana.selected"]
-            .waitForExistence(timeout: 5),
-            "selected person needs a non-color-only indicator")
+        let selectedMark = app.descendants(matching: .any)["editor.person.Ana.selected"]
+        XCTAssertTrue(reveal(selectedMark),
+                      "selected person needs a non-color-only indicator")
         openTab("Receipt")
 
         app.buttons["editor.finalize"].tap()
@@ -245,9 +262,10 @@ final class SplitSlipJourneyTests: XCTestCase {
         containerExists("editor.root", timeout: 10)
         openTab("Receipt")
 
-        // Seeded reference image displays with working controls.
-        XCTAssertTrue(app.descendants(matching: .any)["editor.reference.image"]
-            .waitForExistence(timeout: 5), "reference viewport missing")
+        // Seeded reference image displays with working controls (inside a
+        // virtualized List section — scroll-reveal rather than a bare wait).
+        XCTAssertTrue(reveal(app.descendants(matching: .any)["editor.reference.image"]),
+                      "reference viewport missing")
 
         // Viewport state starts at the seeded 2.0× and buttons drive it.
         XCTAssertTrue(revealText("2.0×"), "seeded zoom label missing")
