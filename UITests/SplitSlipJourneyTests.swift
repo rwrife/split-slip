@@ -81,7 +81,9 @@ final class SplitSlipJourneyTests: XCTestCase {
     }
 
     private func commitKeyboard(_ element: XCUIElement) {
-        let done = app.buttons["editor.dismissKeyboard"]
+        // Keyboard toolbar items can surface as non-Button element types;
+        // query any element by identifier before falling back to Return.
+        let done = app.descendants(matching: .any)["editor.dismissKeyboard"]
         if done.waitForExistence(timeout: 2), (try? done.isHittable) == true {
             done.tap()
         } else if app.keyboards.count > 0 {

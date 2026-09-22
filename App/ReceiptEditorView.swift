@@ -47,19 +47,24 @@ struct ReceiptEditorView: View {
     }
 
     var body: some View {
-        TabView(selection: Binding(
-            get: { model.selection.tab },
-            set: { model.selectTab($0) })) {
-            receiptTab
-                .tabItem { Label("Receipt", systemImage: "list.bullet") }
-                .tag(WorkspaceSelection.Tab.receipt)
-            peopleTab
-                .tabItem { Label("People", systemImage: "person.2") }
-                .tag(WorkspaceSelection.Tab.people)
+        VStack(spacing: 0) {
+            // Reconciliation strip pinned under the nav bar: visible on both
+            // tabs, never inside the virtualized List, and away from the tab
+            // bar so keyboard layout passes can't move tab items.
+            reconciliationBar
+            TabView(selection: Binding(
+                get: { model.selection.tab },
+                set: { model.selectTab($0) })) {
+                receiptTab
+                    .tabItem { Label("Receipt", systemImage: "list.bullet") }
+                    .tag(WorkspaceSelection.Tab.receipt)
+                peopleTab
+                    .tabItem { Label("People", systemImage: "person.2") }
+                    .tag(WorkspaceSelection.Tab.people)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor.root")
-        .safeAreaInset(edge: .bottom) { reconciliationBar }
         .navigationTitle(model.isCorrection ? "Correction draft" : "Receipt")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
