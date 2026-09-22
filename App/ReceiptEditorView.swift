@@ -265,11 +265,15 @@ struct ReceiptEditorView: View {
                 HStack {
                     Text(participant.displayName)
                     if isSelected {
-                        // Non-color-only selection indicator.
+                        // Non-color-only selection indicator. Exposed as an
+                        // accessibility element so it is a hittable leaf in
+                        // the XCUITest tree (a merged/icon-only Label would
+                        // otherwise report isHittable == false).
                         Label("Selected", systemImage: "checkmark.circle.fill")
                             .labelStyle(.iconOnly)
                             .accessibilityLabel("\(participant.displayName) selected")
                             .accessibilityIdentifier("editor.person.\(participant.displayName).selected")
+                            .accessibilityElement()
                     }
                     Spacer()
                     Button(isSelected ? "Deselect \(participant.displayName)" : "Select \(participant.displayName)") {
@@ -510,6 +514,10 @@ private struct ReferenceViewportView: View {
                         .clipped()
                         .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
                         .accessibilityIdentifier("editor.reference.image")
+                        // Keep the photo an addressable accessibility leaf so
+                        // VoiceOver and UI queries can resolve it even while
+                        // scaled/offset inside the List row.
+                        .accessibilityElement()
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.
                     Label("The stored reference image could not be displayed. Its controls still work.",
