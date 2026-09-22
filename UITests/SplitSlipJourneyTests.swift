@@ -60,6 +60,23 @@ final class SplitSlipJourneyTests: XCTestCase {
         return false
     }
 
+    /// Same scroll-reveal as `reveal` but keyed on existence rather than
+    /// hittability. Correct for non-interactive marks (icon-only selection
+    /// badges, images): they can exist while never accepting touches, and
+    /// `isHittable` would then false-fail a genuinely-present indicator.
+    @discardableResult
+    private func revealExists(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
+        if element.waitForExistence(timeout: 2) { return true }
+        let deadline = Date().addingTimeInterval(timeout)
+        var scrollDownFirst = true
+        while Date() < deadline {
+            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
+            scrollDownFirst.toggle()
+            if element.waitForExistence(timeout: 1) { return true }
+        }
+        return false
+    }
+
     private func pollHittable(_ element: XCUIElement, seconds: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
@@ -180,7 +197,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["editor.bar.selection"].waitForExistence(timeout: 5)
                       || revealText("Person: Ana"))
         let selectedMark = app.descendants(matching: .any)["editor.person.Ana.selected"]
-        XCTAssertTrue(reveal(selectedMark),
+        XCTAssertTrue(revealExists(selectedMark),
                       "selected person needs a non-color-only indicator")
         openTab("Receipt")
 
@@ -274,7 +291,9 @@ final class SplitSlipJourneyTests: XCTestCase {
 
         // Seeded reference image displays with working controls (inside a
         // virtualized List section — scroll-reveal rather than a bare wait).
-        XCTAssertTrue(reveal(app.descendants(matching: .any)["editor.reference.image"]),
+        // Existence-based: the scaled image is a decorative AX leaf, never
+        // "hittable" in the XCUITest sense; the buttons below prove control.
+        XCTAssertTrue(revealExists(app.descendants(matching: .any)["editor.reference.image"]),
                       "reference viewport missing")
 
         // Viewport state starts at the seeded 2.0× and buttons drive it.
