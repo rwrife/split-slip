@@ -3,6 +3,7 @@ import ReceiptDomain
 import ReceiptStore
 import SplitSlipCore
 import SwiftUI
+import UIKit
 
 /// Store erasure used across the app so views don't pin the SwiftData type.
 typealias AnyReceiptStore = any DraftStore & SnapshotStore
@@ -30,10 +31,20 @@ enum WorkspaceRoute: Hashable {
 
 struct SplitSlipRootView: View {
     let store: AnyReceiptStore
+    let images: (any ReferenceImageStore)?
+    let continuity: (any ContinuityStore)?
     @State private var path: [WorkspaceRoute] = []
     @State private var drafts: [ReceiptDraft] = []
     @State private var snapshots: [FinalizedReceiptSnapshot] = []
     @State private var reloadMessage: String?
+
+    init(store: AnyReceiptStore,
+         images: (any ReferenceImageStore)? = nil,
+         continuity: (any ContinuityStore)? = nil) {
+        self.store = store
+        self.images = images
+        self.continuity = continuity
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -90,7 +101,7 @@ struct SplitSlipRootView: View {
         switch route {
         case let .draft(id):
             if let draft = (try? store.loadDraft(id: id)) {
-                ReceiptEditorView(draft: draft, store: store, onClose: {
+                ReceiptEditorView(draft: draft, store: store, images: images, continuity: continuity, onClose: {
                     // A correction fork unwinds all the way to home; a plain
                     // draft returns to wherever it was opened from.
                     if draft.correctionOfSnapshotID != nil { popAll() } else { popOne() }
@@ -100,7 +111,7 @@ struct SplitSlipRootView: View {
             }
         case let .snapshot(id):
             if let snapshot = (try? store.loadSnapshot(id: id)) {
-                SnapshotDetailView(snapshot: snapshot, store: store, onDuplicate: { forkID in
+                SnapshotDetailView(snapshot: snapshot, store: store, images: images, continuity: continuity, onDuplicate: { forkID in
                     path.append(.draft(forkID))
                 })
             } else {
@@ -150,9 +161,18 @@ struct SplitSlipRootView: View {
 struct SnapshotDetailView: View {
     let snapshot: FinalizedReceiptSnapshot
     let store: AnyReceiptStore
+    let images: (any ReferenceImageStore)?
+    let continuity: (any ContinuityStore)?
     /// Called with the id of a freshly forked correction draft so the
     /// owning navigation stack can push its editor.
     let onDuplicate: (UUID) -> Void
+
+    /// `referenceImageURL` is `throws` and the store is optional, so flatten
+    /// both layers here; a failing store just means "no reference to show".
+    private var storedReferenceURL: URL? {
+        guard let images else { return nil }
+        return try? images.referenceImageURL(receiptID: snapshot.id)
+    }
 
     var body: some View {
         List {
@@ -173,6 +193,10 @@ struct SnapshotDetailView: View {
             } footer: {
                 Text("Snapshots never change. Duplicating to correct starts a new linked draft; the original stays as it is.")
             }
+            if let imageURL = storedReferenceURL {
+                // Read-only reference carried with the snapshot (issue #4).
+                SnapshotReferenceView(imageURL: imageURL)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("snapshot.readonly")
@@ -190,7 +214,37 @@ struct SnapshotDetailView: View {
         let fork = ReceiptWorkspaceModel.correctionDraft(from: snapshot)
         do {
             try store.saveDraft(fork)
+            // The fork inherits the snapshot's reference image and workspace
+            // selection as copies; the snapshot keeps its own (issue #4).
+            try? images?.copyReference(from: snapshot.id, to: fork.id)
+            continuity?.copySelection(from: snapshot.id, to: fork.id)
             onDuplicate(fork.id)
         } catch {}
+    }
+}
+
+/// Read-only reference photo inside a finalized snapshot review.
+private struct SnapshotReferenceView: View {
+    let imageURL: URL
+    @State private var image: UIImage?
+
+    var body: some View {
+        Section("Reference photo") {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: 220)
+                    .clipped()
+                    .accessibilityLabel("Receipt reference photo")
+                    .accessibilityIdentifier("snapshot.reference")
+            } else {
+                Label("The stored reference image could not be displayed.",
+                      systemImage: "photo.badge.exclamationmark")
+                    .accessibilityIdentifier("snapshot.reference.unreadable")
+            }
+        }
+        .task { image = UIImage(contentsOfFile: imageURL.path) }
     }
 }

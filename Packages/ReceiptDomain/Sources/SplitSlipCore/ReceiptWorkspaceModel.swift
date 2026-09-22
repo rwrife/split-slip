@@ -36,6 +36,16 @@ public struct RowReview: Identifiable, Hashable, Sendable {
 public final class ReceiptWorkspaceModel {
     public private(set) var draft: ReceiptDraft
     public let store: any DraftStore & SnapshotStore
+    /// Optional issue #4 collaborators. `nil` keeps the model running the
+    /// pure issue #3 flow (used by some unit tests); the app always injects.
+    public let images: (any ReferenceImageStore)?
+    public let continuity: (any ContinuityStore)?
+
+    /// Restored/persisted workspace selection (tab, selected row/person,
+    /// reference viewport). Views read it; they never own it.
+    public private(set) var selection: WorkspaceSelection
+    /// On-disk reference image for this receipt, if one has been imported.
+    public private(set) var referenceImageURL: URL?
 
     // Raw user text (kept separate so invalid input never corrupts stored amounts).
     public var expectedTotalInput: String = ""
@@ -47,13 +57,23 @@ public final class ReceiptWorkspaceModel {
 
     /// Field key -> visible message. Keys: "expectedTotal", "participant",
     /// "line:<id>:label", "line:<id>:amount", "adjustment:<id>:label",
-    /// "adjustment:<id>:amount", "finalization", "store", "correction".
+    /// "adjustment:<id>:amount", "finalization", "store", "correction",
+    /// "reference".
     public private(set) var fieldMessages: [String: String] = [:]
     public private(set) var isFinalized: Bool = false
 
-    public init(draft: ReceiptDraft = ReceiptDraft(), store: any DraftStore & SnapshotStore) {
+    public init(
+        draft: ReceiptDraft = ReceiptDraft(),
+        store: any DraftStore & SnapshotStore,
+        images: (any ReferenceImageStore)? = nil,
+        continuity: (any ContinuityStore)? = nil
+    ) {
         self.draft = draft
         self.store = store
+        self.images = images
+        self.continuity = continuity
+        self.selection = continuity?.loadSelection(receiptID: draft.id) ?? WorkspaceSelection()
+        self.referenceImageURL = try? images?.referenceImageURL(receiptID: draft.id)
         self.expectedTotalInput = draft.expectedTotal == .zero ? "" : draft.expectedTotal.description
         for line in draft.lines {
             lineLabelInput[line.id] = line.label
@@ -69,6 +89,83 @@ public final class ReceiptWorkspaceModel {
 
     public var draftID: UUID { draft.id }
     public var isCorrection: Bool { draft.correctionOfSnapshotID != nil }
+
+    // MARK: - Workspace continuity (issue #4)
+
+    /// Persist the workspace selection (tab / selected row / selected person /
+    /// reference viewport). Continuity failures are deliberately quiet: losing
+    /// a selection must never surface as a receipt-data error.
+    public func updateSelection(_ transform: (inout WorkspaceSelection) -> Void) {
+        var next = selection
+        transform(&next)
+        selection = next.normalized()
+        continuity?.saveSelection(selection, receiptID: draft.id)
+    }
+
+    public func selectTab(_ tab: WorkspaceSelection.Tab) {
+        updateSelection { $0.tab = tab }
+    }
+
+    public func selectRow(_ rowID: UUID?) {
+        updateSelection { $0.selectedRowID = rowID }
+    }
+
+    public func selectParticipant(_ participantID: UUID?) {
+        updateSelection { $0.selectedParticipantID = participantID }
+    }
+
+    // MARK: - Reference image (issue #4)
+
+    /// Import raw picker payload: sanitized (metadata stripped) then stored.
+    /// Any failure keeps the previous image untouched and shows visible copy.
+    /// - Returns: true when the new image replaced any previous one.
+    @discardableResult
+    public func importReferenceImage(payload: Data?) -> Bool {
+        guard let payload else {
+            // PhotosPicker cancel / unavailable asset: a no-op, not an error.
+            return false
+        }
+        guard let images else {
+            setFieldMessage("reference", "Reference images are unavailable right now.")
+            return false
+        }
+        do {
+            let sanitized = try ReferenceImageSandbox.sanitize(payload)
+            try images.setReferenceImage(sanitized.jpeg, receiptID: draft.id)
+            referenceImageURL = try images.referenceImageURL(receiptID: draft.id)
+            setFieldMessage("reference", nil)
+            return true
+        } catch let error as ReferenceImageError {
+            setFieldMessage("reference", DomainMessages.referenceImage(error))
+            return false
+        } catch {
+            setFieldMessage("reference", "The image could not be stored. The previous reference is unchanged.")
+            return false
+        }
+    }
+
+    /// PhotosPicker returned an item but its data could not be loaded
+    /// (denied/evicted asset). Visible refusal; nothing stored.
+    public func referenceLoadFailed() {
+        setFieldMessage("reference", "That photo could not be read from the library. Nothing was changed.")
+    }
+
+    public func removeReferenceImage() {
+        guard let images else { return }
+        do {
+            try images.clearReferenceImage(receiptID: draft.id)
+            referenceImageURL = nil
+            setFieldMessage("reference", nil)
+            // The viewport refers to a file that no longer exists.
+            updateSelection {
+                $0.referenceZoom = WorkspaceSelection.minimumZoom
+                $0.referenceOffsetX = 0
+                $0.referenceOffsetY = 0
+            }
+        } catch {
+            setFieldMessage("reference", "The image could not be removed. Nothing else changed.")
+        }
+    }
 
     // MARK: - Helpers
 
@@ -459,6 +556,17 @@ public final class ReceiptWorkspaceModel {
             // The draft's lifecycle ends with its snapshot; keep no stale draft
             // row so the home list shows one receipt, not a ghost draft.
             try? store.deleteDraft(id: draft.id)
+            // Ownership transfers for issue #4 collaborators: the snapshot
+            // inherits the reference image and the workspace selection under
+            // its own id; the draft's keys are released.
+            if let images, referenceImageURL != nil {
+                try? images.copyReference(from: draft.id, to: snapshot.id)
+                try? images.clearReferenceImage(receiptID: draft.id)
+            }
+            if let continuity {
+                continuity.copySelection(from: draft.id, to: snapshot.id)
+                continuity.clearSelection(receiptID: draft.id)
+            }
             isFinalized = true
             setFieldMessage("finalization", nil)
             setFieldMessage("store", nil)
@@ -488,6 +596,9 @@ public final class ReceiptWorkspaceModel {
     public func cancelCorrectionIfFork() {
         guard draft.correctionOfSnapshotID != nil else { return }
         try? store.deleteDraft(id: draft.id)
+        // Release the fork's own continuity keys; the snapshot's remain.
+        try? images?.clearReferenceImage(receiptID: draft.id)
+        continuity?.clearSelection(receiptID: draft.id)
         fieldMessages["correction"] = "Correction cancelled — the finalized receipt is unchanged."
     }
 }

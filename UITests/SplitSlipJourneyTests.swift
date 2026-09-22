@@ -1,13 +1,14 @@
 import Foundation
 import XCTest
 
-/// Issue #3 acceptance journey: create → allocate → mismatch → correct →
-/// finalize → relaunch → inspect → duplicate. Button/tap based only for the
-/// app itself (no drag-only interactions); the tests may *scroll* the list,
+/// Issue #3 acceptance journey (updated for the issue #4 tabbed workspace):
+/// create → allocate → mismatch → correct → finalize → relaunch → inspect →
+/// duplicate. Issue #4 adds the reference viewport + continuity journey and
+/// the tabbed Receipt/People navigation. Button/tap based only for the app
+/// itself (no drag-only interactions); the tests may *scroll* the list,
 /// which SwiftUI `List` virtualizes when the keyboard changes the offset.
 /// Every launch resets the on-disk store with `-reset-store` except the
-/// explicit relaunch step, which proves the finalized snapshot survives
-/// termination.
+/// explicit relaunch step, which proves state survives termination.
 @MainActor
 final class SplitSlipJourneyTests: XCTestCase {
     private var app: XCUIApplication!
@@ -88,18 +89,29 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(revealText("No receipts yet. Create one to get started."))
     }
 
+    /// Switch the editor's TabView to one of its tabs (issue #4 layout).
+    private func openTab(_ name: String) {
+        let tab = app.tabBars.buttons[name]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10), "tab \(name) never appeared")
+        tab.tap()
+        containerExists(name == "People" ? "editor.peopleTab" : "editor.receiptTab", timeout: 5)
+    }
+
     /// Enter currency stays USD; add two people, one line, and reach a
     /// deliberate total mismatch (rows 30.00 vs printed 20.00).
     private func buildMismatchedReceipt() {
         app.buttons["home.newReceipt"].tap()
         containerExists("editor.root", timeout: 10)
+        openTab("Receipt")
 
         tapAndType(app.textFields["editor.expectedTotal"], text: "20.00")
+        openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
         app.buttons["editor.addParticipant"].tap()
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
         app.buttons["editor.addParticipant"].tap()
 
+        openTab("Receipt")
         app.buttons["editor.addLine"].tap()
         tapAndType(app.textFields["editor.line.0.label"], text: "Appetizer")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
@@ -109,7 +121,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(split), "split-equally button never became hittable")
         split.tap()
 
-        // Mismatch must be visible: rows exceed the printed total by 10.00.
+        // Mismatch must be visible in the reconciliation bar (both tabs).
         XCTAssertTrue(revealText("Rows exceed the total by 10.00"))
         XCTAssertFalse(app.buttons["editor.finalize"].isEnabled,
                        "Finalize must stay blocked while totals mismatch")
@@ -131,6 +143,19 @@ final class SplitSlipJourneyTests: XCTestCase {
         if done.waitForExistence(timeout: 3) { done.tap() }
         XCTAssertTrue(revealText("Rows match the entered total"))
         XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
+
+        // Tab continuity across navigation: select a person, switch tabs and
+        // verify the shared workspace selection reports on both (issue #4).
+        openTab("People")
+        let selectAna = app.buttons["editor.person.Ana.select"]
+        XCTAssertTrue(reveal(selectAna), "select-person button never became hittable")
+        selectAna.tap()
+        XCTAssertTrue(app.staticTexts["editor.bar.selection"].waitForExistence(timeout: 5)
+                      || revealText("Person: Ana"))
+        XCTAssertTrue(app.descendants(matching: .any)["editor.person.Ana.selected"]
+            .waitForExistence(timeout: 5),
+            "selected person needs a non-color-only indicator")
+        openTab("Receipt")
 
         app.buttons["editor.finalize"].tap()
 
@@ -171,14 +196,17 @@ final class SplitSlipJourneyTests: XCTestCase {
         freshLaunch()
         app.buttons["home.newReceipt"].tap()
         containerExists("editor.root", timeout: 10)
+        openTab("Receipt")
 
         // Bad amount is refused visibly and does not corrupt the draft.
         tapAndType(app.textFields["editor.expectedTotal"], text: "1,000.00")
         XCTAssertTrue(revealText("Amounts cannot use separators like commas (write 1000.00, not 1,000.00)."))
 
         // Add a person, then a line, split it, and removal must confirm first.
+        openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
         app.buttons["editor.addParticipant"].tap()
+        openTab("Receipt")
         app.buttons["editor.addLine"].tap()
         tapAndType(app.textFields["editor.line.0.label"], text: "Food")
         tapAndType(app.textFields["editor.line.0.amount"], text: "5.00")
@@ -186,6 +214,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(split))
         split.tap()
 
+        openTab("People")
         let remove = app.buttons["editor.removeParticipant.Ana"]
         XCTAssertTrue(reveal(remove), "remove-participant button never became hittable")
         remove.tap()
@@ -197,6 +226,75 @@ final class SplitSlipJourneyTests: XCTestCase {
         alert.buttons["Remove Ana"].tap()
 
         // The row is flagged needing review — never silently reassigned.
+        openTab("Receipt")
         XCTAssertTrue(revealText("Needs review after a participant was removed"))
+    }
+
+    /// Issue #4: the reference viewport and workspace selection are restored
+    /// across tab switches, a simulated rotation and a full relaunch —
+    /// state lives in the workspace model, not the view. The system photo
+    /// picker is driven by the user only; this journey verifies everything
+    /// downstream of an accepted import using a deterministic seeded draft.
+    func testReferenceViewportAndSelectionSurviveNavigationRotationAndRelaunch() throws {
+        let seededID = "00000000-0000-0000-0000-00000000E4D4"
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", seededID]
+        app.launch()
+        containerExists("home.root")
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 10))
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root", timeout: 10)
+        openTab("Receipt")
+
+        // Seeded reference image displays with working controls.
+        XCTAssertTrue(app.descendants(matching: .any)["editor.reference.image"]
+            .waitForExistence(timeout: 5), "reference viewport missing")
+
+        // Viewport state starts at the seeded 2.0× and buttons drive it.
+        XCTAssertTrue(revealText("2.0×"), "seeded zoom label missing")
+        let zoomIn = app.buttons["editor.reference.zoomIn"]
+        XCTAssertTrue(reveal(zoomIn))
+        zoomIn.tap()
+        XCTAssertTrue(revealText("2.5×"), "zoom-in button must change persisted zoom")
+
+        // Pan supplement buttons (explicit control; gestures optional).
+        let panRight = app.buttons["editor.reference.pan.arrow.right"]
+        XCTAssertTrue(reveal(panRight))
+        panRight.tap()
+
+        // Select the line so its selection must also survive.
+        let selectLine = app.buttons["editor.line.0.select"]
+        XCTAssertTrue(reveal(selectLine))
+        selectLine.tap()
+        XCTAssertTrue(revealText("Line: Food"))
+
+        // Tab switch away and back: viewport unchanged (no reset).
+        openTab("People")
+        openTab("Receipt")
+        XCTAssertTrue(revealText("2.5×"), "zoom must survive tab switch")
+
+        // Simulated device rotation: layout changes, state must not.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(revealText("2.5×"), "zoom must survive rotation")
+        XCTAssertTrue(revealText("Line: Food"))
+        XCUIDevice.shared.orientation = .portrait
+
+        // Full relaunch (no reset): selection + viewport restored from disk.
+        app.terminate()
+        app.launchArguments = ["-ui-testing", "-seed-workspace", seededID]
+        app.launch()
+        containerExists("home.root")
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root", timeout: 10)
+        // Selection restore includes the tab (Receipt) and viewport.
+        XCTAssertTrue(revealText("2.5×"), "zoom must survive relaunch")
+        XCTAssertTrue(revealText("Line: Food"), "selected line must survive relaunch")
+
+        // Removing the reference is explicit and leaves the rest intact.
+        let removeReference = app.buttons["editor.reference.remove"]
+        XCTAssertTrue(reveal(removeReference))
+        removeReference.tap()
+        XCTAssertTrue(reveal(app.buttons["editor.reference.pick"]),
+                      "removing the reference must restore the picker entry")
+        XCTAssertTrue(revealText("Line: Food"), "removing the image must not clear the selection")
     }
 }
