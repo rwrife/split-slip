@@ -531,12 +531,22 @@ private struct ReferenceViewportView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 180)
                     .clipped()
-                    .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
-                    .accessibilityIdentifier("editor.reference.image")
-                    .accessibilityElement(children: .ignore)
-                    // Decorative photo: the explicit button rows below are
-                    // the accessible control surface, so the viewport
-                    // accepts no touches at all.
+                    // Decorative photo. It must NOT be an AX element: an
+                    // accessibilityElement() leaf on (or wrapping) scaled/
+                    // offset content reports a frame that overflows the
+                    // clipped 180pt viewport and covers the control rows
+                    // below — XCUITest then reports those buttons found-but-
+                    // never-hittable no matter the shape/ hit-testing
+                    // modifiers (proven across runs 35796551900, 35802428979,
+                    // 35803374058, 35844245213, 35851183961: leaf on image,
+                    // contentShape, leaf-on-container, allowsHitTesting all
+                    // fail identically; the single-snapshot AX dump in
+                    // 35857097157 shows the leaf + buttons virtualized while
+                    // sibling rows persist). VoiceOver operates the photo
+                    // through the labeled zoom/pan/reset buttons, whose
+                    // labels carry the full state; the viewport itself is
+                    // proven present via editor.reference.zoomLabel.
+                    .accessibilityHidden(true)
                     .allowsHitTesting(false)
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.

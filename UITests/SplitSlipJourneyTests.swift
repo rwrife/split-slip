@@ -318,11 +318,13 @@ final class SplitSlipJourneyTests: XCTestCase {
         containerExists("editor.root", timeout: 10)
         openTab("Receipt")
 
-        // Seeded reference image displays with working controls (inside a
-        // virtualized List section — scroll-reveal rather than a bare wait).
-        // Existence-based: the scaled image is a decorative AX leaf, never
-        // "hittable" in the XCUITest sense; the buttons below prove control.
-        XCTAssertTrue(revealExists(app.descendants(matching: .any)["editor.reference.image"]),
+        // Seeded reference import is active: the viewport's zoom label
+        // exists (the photo itself is deliberately accessibilityHidden —
+        // any AX element over scaled content reports overflowing frames
+        // that poison sibling hittability; the labeled control rows are
+        // the accessible surface, proven hittable below). Existence-based:
+        // static text never accepts touches.
+        XCTAssertTrue(revealExists(app.descendants(matching: .any)["editor.reference.zoomLabel"]),
                       "reference viewport missing")
 
         // Viewport state starts at the seeded 2.0× and buttons drive it.

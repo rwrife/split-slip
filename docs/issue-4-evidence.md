@@ -46,6 +46,12 @@ class; nothing is upgraded between classes.
   through standard `Text`/`Label`/`List` styles; reading order follows
   header → reference → lines → adjustments (Receipt tab) and people →
   review (People tab).
+  The scaled reference photo itself is intentionally `accessibilityHidden`
+  and non-interactive: it carries no actionable content, and any AX element
+  whose rendered bounds overflow a clipped viewport makes sibling controls
+  unhittable for XCUITest (five CI runs of evidence). VoiceOver operates
+  the viewport through the labeled zoom/pan/reset buttons; the zoom label
+  text exposes the current zoom state.
 
 ## Evidence by class
 
