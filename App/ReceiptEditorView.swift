@@ -512,19 +512,19 @@ private struct ReferenceViewportView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 180)
                         .clipped()
+                        // scaleEffect enlarges the image's hit-test region
+                        // beyond its clipped 180pt box, and .clipped() alone
+                        // does NOT restore touch passthrough — without this
+                        // the zoomed photo swallows taps meant for the
+                        // zoom/pan row below. Re-bind hit-testing to the
+                        // visible frame.
+                        .contentShape(Rectangle())
+                        // Expose the photo as a queryable AX leaf (VoiceOver
+                        // + UI existence checks); without it the decorative
+                        // image is merged away in the List row's AX tree.
+                        .accessibilityElement()
                         .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
                         .accessibilityIdentifier("editor.reference.image")
-                        // scaleEffect enlarges the image's hit area beyond
-                        // its clipped 180pt box, and .clipped() alone does
-                        // NOT restore touch passthrough — the zoomed photo
-                        // would swallow taps on the zoom/pan row below it
-                        // at zoom > 1. contentShape(Rectangle()) re-binds
-                        // hit-testing to the visible frame.
-                        .contentShape(Rectangle())
-                        // NOTE: deliberately NOT marked .accessibilityElement():
-                        // the image is exposed to VoiceOver via its label by
-                        // default; UI tests assert it by existence, not
-                        // hittability.
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.
                     Label("The stored reference image could not be displayed. Its controls still work.",
