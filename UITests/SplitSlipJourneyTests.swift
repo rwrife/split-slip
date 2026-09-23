@@ -86,6 +86,38 @@ final class SplitSlipJourneyTests: XCTestCase {
         return false
     }
 
+    /// Builds a compact one-line AX report for the reference viewport so a
+    /// reveal failure lands in the xcodebuild log inside the assertion
+    /// message (print() output does not reliably reach the test log).
+    /// Every query is individually guarded; the report never throws.
+    private func referenceFailureReport(_ why: String) -> String {
+        func probe(_ el: XCUIElement) -> String {
+            guard el.exists else { return "MISSING" }
+            let hittable = (try? el.isHittable) ?? false
+            return "frame=\(el.frame) hittable=\(hittable)"
+        }
+        var lines: [String] = ["\(why): window=\(app.frame)"]
+        lines.append("zoomIn[\(probe(app.buttons["editor.reference.zoomIn"]))]")
+        lines.append("image[\(probe(app.descendants(matching: .any)["editor.reference.image"]))]")
+        lines.append("remove[\(probe(app.buttons["editor.reference.remove"]))]")
+        lines.append("zoomLabel[\(probe(app.descendants(matching: .any)["editor.reference.zoomLabel"]))]")
+        let zoom = app.buttons["editor.reference.zoomIn"]
+        if zoom.exists {
+            let f = zoom.frame
+            let center = CGPoint(x: f.midX, y: f.midY)
+            var coverCount = 0
+            let all = app.descendants(matching: .any).allElementsBoundByIndex
+            for el in all.prefix(400) {
+                guard el.exists, el.frame.width > 0, el.frame.contains(center) else { continue }
+                let h = (try? el.isHittable) ?? false
+                lines.append("covers: id=\(el.identifier) type=\(el.elementType) frame=\(el.frame) hittable=\(h)")
+                coverCount += 1
+                if coverCount >= 12 { break }
+            }
+        }
+        return lines.joined(separator: " | ")
+    }
+
     /// Tap, type, then commit deterministically. The keyboard toolbar "Done"
     /// button appears in some layouts; when it does not (TabView layout),
     /// pressing Return triggers the field's `onSubmit` focus release. Then
@@ -299,7 +331,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         // Viewport state starts at the seeded 2.0× and buttons drive it.
         XCTAssertTrue(revealText("2.0×"), "seeded zoom label missing")
         let zoomIn = app.buttons["editor.reference.zoomIn"]
-        XCTAssertTrue(reveal(zoomIn), "zoom-in button never became hittable")
+        XCTAssertTrue(reveal(zoomIn), referenceFailureReport("zoom-in never hittable"))
         zoomIn.tap()
         XCTAssertTrue(revealText("2.5×"), "zoom-in button must change persisted zoom")
 
