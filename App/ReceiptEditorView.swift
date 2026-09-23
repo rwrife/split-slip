@@ -519,12 +519,13 @@ private struct ReferenceViewportView: View {
                         // zoom/pan row below. Re-bind hit-testing to the
                         // visible frame.
                         .contentShape(Rectangle())
-                        // Expose the photo as a queryable AX leaf (VoiceOver
-                        // + UI existence checks); without it the decorative
-                        // image is merged away in the List row's AX tree.
-                        .accessibilityElement()
+                        // CI-proven ordering (run 35796551900): the element
+                        // is queryable in the XCUITest tree only with
+                        // .accessibilityElement() applied LAST, after the
+                        // label/identifier.
                         .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
                         .accessibilityIdentifier("editor.reference.image")
+                        .accessibilityElement()
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.
                     Label("The stored reference image could not be displayed. Its controls still work.",
