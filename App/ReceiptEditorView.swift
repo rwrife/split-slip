@@ -514,10 +514,17 @@ private struct ReferenceViewportView: View {
                         .clipped()
                         .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
                         .accessibilityIdentifier("editor.reference.image")
-                        // Keep the photo an addressable accessibility leaf so
-                        // VoiceOver and UI queries can resolve it even while
-                        // scaled/offset inside the List row.
-                        .accessibilityElement()
+                        // scaleEffect enlarges the image's hit area beyond
+                        // its clipped 180pt box, and .clipped() alone does
+                        // NOT restore touch passthrough — the zoomed photo
+                        // would swallow taps on the zoom/pan row below it
+                        // at zoom > 1. contentShape(Rectangle()) re-binds
+                        // hit-testing to the visible frame.
+                        .contentShape(Rectangle())
+                        // NOTE: deliberately NOT marked .accessibilityElement():
+                        // the image is exposed to VoiceOver via its label by
+                        // default; UI tests assert it by existence, not
+                        // hittability.
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.
                     Label("The stored reference image could not be displayed. Its controls still work.",
