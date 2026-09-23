@@ -60,6 +60,81 @@ final class SplitSlipJourneyTests: XCTestCase {
         return false
     }
 
+    /// Failure-path diagnostics: dump identifier/type/frame/hittable for
+    /// every element inside the reference viewport area so a found-but-not-
+    /// hittable CI failure shows WHICH frame overlaps WHERE, instead of
+    /// guessing from three structural variants. Printed to the xcodebuild
+    /// test log (visible in CI artifacts).
+    private func dumpReferenceDiagnostics(_ why: String) {
+        var lines: [String] = ["=== REFERENCE DIAGNOSTICS (\(why)) ==="]
+        let targets: [(String, XCUIElement)] = [
+            ("image", app.descendants(matching: .any)["editor.reference.image"]),
+            ("zoomIn", app.buttons["editor.reference.zoomIn"]),
+            ("zoomOut", app.buttons["editor.reference.zoomOut"]),
+            ("pan.right", app.buttons["editor.reference.pan.arrow.right"]),
+            ("reset", app.buttons["editor.reference.reset"]),
+            ("section", app.descendants(matching: .any)["editor.reference.section"]),
+            ("viewport.row", app.descendants(matching: .any)["editor.receiptTab"]),
+        ]
+        for (name, el) in targets {
+            guard el.exists else {
+                lines.append("\(name): MISSING")
+                continue
+            }
+            let hittable = (try? el.isHittable) ?? false
+            lines.append("\(name): type=\(el.elementType) frame=\(el.frame) hittable=\(hittable) enabled=\(el.isEnabled)")
+        }
+        // Which elements occupy the zoomIn button's center point? Enumerate
+        // all app descendants whose frame contains that point (window space).
+        let zoom = app.buttons["editor.reference.zoomIn"]
+        if zoom.exists {
+            let f = zoom.frame
+            let center = CGPoint(x: f.midX, y: f.midY)
+            let all = app.descendants(matching: .any).allElementsBoundByIndex
+            for el in all where el.exists && el.frame.width > 0 {
+                if el.frame.contains(center) {
+                    let t = (try? el.isHittable) ?? false
+                    lines.append("covers-center: id=\(el.identifier) type=\(el.elementType) frame=\(el.frame) hittable=\(t)")
+                }
+            }
+        }
+        lines.append("=== END DIAGNOSTICS ===")
+        print(lines.joined(separator: "\n"))
+    }
+
+    /// Scroll-reveal that logs the reveal target's window frame at each
+    /// scroll step, proving whether the List actually scrolls and where the
+    /// element sits relative to the window. Only used by the failing seed
+    /// journey; success path stays quiet.
+    @discardableResult
+    private func revealLogging(_ element: XCUIElement, label: String, timeout: TimeInterval = 12) -> Bool {
+        func probe(_ phase: String) -> Bool {
+            guard element.exists else {
+                print("[reveal:\(label)] \(phase): \(element.identifier) MISSING")
+                return false
+            }
+            let hittable = (try? element.isHittable) ?? false
+            print("[reveal:\(label)] \(phase): frame=\(element.frame) window=\(app.frame) hittable=\(hittable)")
+            return hittable
+        }
+        if pollHittable(element, seconds: 2) { return true }
+        probe("initial")
+        let deadline = Date().addingTimeInterval(timeout)
+        var scrollDownFirst = true
+        var step = 0
+        while Date() < deadline {
+            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
+            scrollDownFirst.toggle()
+            step += 1
+            if pollHittable(element, seconds: 1) {
+                probe("step\(step)-success")
+                return true
+            }
+            probe("step\(step)")
+        }
+        return false
+    }
+
     /// Same scroll-reveal as `reveal` but keyed on existence rather than
     /// hittability. Correct for non-interactive marks (icon-only selection
     /// badges, images): they can exist while never accepting touches, and
@@ -299,7 +374,11 @@ final class SplitSlipJourneyTests: XCTestCase {
         // Viewport state starts at the seeded 2.0× and buttons drive it.
         XCTAssertTrue(revealText("2.0×"), "seeded zoom label missing")
         let zoomIn = app.buttons["editor.reference.zoomIn"]
-        XCTAssertTrue(reveal(zoomIn))
+        let zoomInVisible = revealLogging(zoomIn, label: "zoomIn")
+        if !zoomInVisible {
+            dumpReferenceDiagnostics("zoomIn never hittable")
+        }
+        XCTAssertTrue(zoomInVisible, "zoom-in button never became hittable")
         zoomIn.tap()
         XCTAssertTrue(revealText("2.5×"), "zoom-in button must change persisted zoom")
 
