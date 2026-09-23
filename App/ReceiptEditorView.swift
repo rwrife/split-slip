@@ -240,7 +240,13 @@ struct ReceiptEditorView: View {
         } header: {
             Text("Reference photo")
         }
-        .accessibilityIdentifier("editor.reference.section")
+        // NEVER put accessibilityIdentifier on a Section: SwiftUI cascades
+        // it onto every child element in the List section, overwriting the
+        // children's own identifiers (proven by the run 35849431871 AX
+        // snapshot: every reference control surfaced as
+        // identifier='editor.reference.section', so editor.reference.zoomIn
+        // never existed and every reveal failed). The section is identified
+        // through its header text and child identifiers instead.
     }
 
     // MARK: - People tab
