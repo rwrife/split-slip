@@ -503,30 +503,35 @@ private struct ReferenceViewportView: View {
         VStack(alignment: .leading, spacing: 6) {
             Group {
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .scaleEffect(model.selection.referenceZoom)
-                        .offset(x: model.selection.referenceOffsetX,
-                                y: model.selection.referenceOffsetY)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 180)
-                        .clipped()
-                        .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
-                        .accessibilityIdentifier("editor.reference.image")
-                        .accessibilityElement()
-                        // Leaf-ness is driven by accessibilityElement(); hit-
-                        // testing is then DISABLED outright. CI evidence:
-                        // - run 35802428979: without accessibilityElement()
-                        //   the photo vanished from the XCUITest query tree.
-                        // - run 35803374058: with contentShape(Rectangle())
-                        //   the leaf was queryable but its scaled hit region
-                        //   swallowed taps to the zoom/pan row below, so the
-                        //   zoom-in button was found yet never hittable.
-                        // The photo is decorative here — the explicit button
-                        // rows below are the accessible control surface — so
-                        // it must accept no touches at all.
-                        .allowsHitTesting(false)
+                    // The zoom/pan transforms render beyond the visible
+                    // viewport, and an accessibilityElement() leaf attached
+                    // to the transformed view reports the SCALED visual
+                    // bounds — its AX frame then overlaps the button rows
+                    // below and XCUITest reports those buttons found-but-
+                    // never-hittable (run 35844245213; allowsHitTesting
+                    // cannot help because the block is at the AX-tree level,
+                    // and 35803374058 showed contentShape can't either).
+                    // Nest the transforms inside a fixed-size container and
+                    // leaf the CONTAINER: its bounds are the visible 180pt
+                    // viewport, so controls below stay hittable.
+                    ZStack {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .scaleEffect(model.selection.referenceZoom)
+                            .offset(x: model.selection.referenceOffsetX,
+                                    y: model.selection.referenceOffsetY)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 180)
+                    .clipped()
+                    .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
+                    .accessibilityIdentifier("editor.reference.image")
+                    .accessibilityElement(children: .ignore)
+                    // Decorative photo: the explicit button rows below are
+                    // the accessible control surface, so the viewport
+                    // accepts no touches at all.
+                    .allowsHitTesting(false)
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.
                     Label("The stored reference image could not be displayed. Its controls still work.",
