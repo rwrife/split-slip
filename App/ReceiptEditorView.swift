@@ -512,20 +512,21 @@ private struct ReferenceViewportView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 180)
                         .clipped()
-                        // scaleEffect enlarges the image's hit-test region
-                        // beyond its clipped 180pt box, and .clipped() alone
-                        // does NOT restore touch passthrough — without this
-                        // the zoomed photo swallows taps meant for the
-                        // zoom/pan row below. Re-bind hit-testing to the
-                        // visible frame.
-                        .contentShape(Rectangle())
-                        // CI-proven ordering (run 35796551900): the element
-                        // is queryable in the XCUITest tree only with
-                        // .accessibilityElement() applied LAST, after the
-                        // label/identifier.
                         .accessibilityLabel("Receipt reference photo, zoom \(zoomLabel)")
                         .accessibilityIdentifier("editor.reference.image")
                         .accessibilityElement()
+                        // Leaf-ness is driven by accessibilityElement(); hit-
+                        // testing is then DISABLED outright. CI evidence:
+                        // - run 35802428979: without accessibilityElement()
+                        //   the photo vanished from the XCUITest query tree.
+                        // - run 35803374058: with contentShape(Rectangle())
+                        //   the leaf was queryable but its scaled hit region
+                        //   swallowed taps to the zoom/pan row below, so the
+                        //   zoom-in button was found yet never hittable.
+                        // The photo is decorative here — the explicit button
+                        // rows below are the accessible control surface — so
+                        // it must accept no touches at all.
+                        .allowsHitTesting(false)
                 } else {
                     // Corrupt/unreadable owned file: visible state, not a blank.
                     Label("The stored reference image could not be displayed. Its controls still work.",
