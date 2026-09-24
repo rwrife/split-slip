@@ -1,0 +1,80 @@
+name: Protected iPhone release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_evidence:
+        description: 'Link to completed real-iPhone release checklist and pinned CI evidence'
+        required: true
+        type: string
+      upload_to_testflight:
+        description: 'Upload signed IPA to Apple (does not submit to App Store review)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+  deployments: read
+
+concurrency:
+  group: signed-release
+  cancel-in-progress: false
+
+jobs:
+  verify-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main and a protected release environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_REF: ${{ github.ref }}
+          EVIDENCE: ${{ inputs.device_evidence }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REF" == refs/heads/main ]] || { echo 'Release only from main'; exit 1; }
+          [[ "$EVIDENCE" == https://* ]] || { echo 'Provide the device/CI evidence URL'; exit 1; }
+          gh api "repos/$GH_REPO/environments/testflight" > environment.json
+          python3 - <<'PY'
+          import json
+          environment = json.load(open('environment.json'))
+          rules = environment.get('protection_rules', [])
+          if not any(r.get('type') == 'required_reviewers' and r.get('reviewers') for r in rules):
+              raise SystemExit('Configure required reviewers on the testflight environment first.')
+          PY
+  archive:
+    needs: verify-gate
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: testflight
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify pinned native tests at the release SHA
+        run: Scripts/ci.sh "$GITHUB_SHA"
+      - name: Archive, verify, export, and optionally upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_TEAM_ID: ${{ secrets.ASC_TEAM_ID }}
+          RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+          UPLOAD_TO_TESTFLIGHT: ${{ inputs.upload_to_testflight }}
+        run: Scripts/release.sh
+      - name: Retain signed candidate and provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: iphone-release-${{ github.sha }}-${{ github.run_number }}
+          path: |
+            build/ci-artifacts
+            build/release/SplitSlip.xcarchive
+            build/release/export/*.ipa
+            build/release/provenance.json
+            build/release/upload-response.json
+          if-no-files-found: warn
+          retention-days: 14

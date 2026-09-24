@@ -168,7 +168,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.launchArguments = ["-ui-testing", "-reset-store"]
         app.launch()
         containerExists("home.root")
-        XCTAssertTrue(revealText("No receipts yet. Create one to get started."))
+        containerExists("home.empty")
     }
 
     /// Enter currency stays USD; add two people, one line, and reach a
@@ -191,7 +191,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
 
         // Split equally across both people.
-        let split = app.buttons["editor.line.0.splitEqually"]
+        let split = app.buttons["editor.splitEqually"]
         XCTAssertTrue(reveal(split), "split-equally button never became hittable")
         split.tap()
 
@@ -219,11 +219,23 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
         app.buttons["editor.addParticipant"].tap()
         openTab("Receipt")
+        app.buttons["editor.splitEqually"].tap()
+        captureStoreScreenshot("04-quick-split")
+        openTab("People")
+        let fixedAmount = app.textFields["editor.person.Ana.amount"]
+        tapAndType(fixedAmount, text: "10.00")
+        let automaticAmount = app.textFields["editor.person.Bo.amount"]
+        XCTAssertTrue(reveal(automaticAmount))
+        captureStoreScreenshot("05-custom-amounts")
+        openTab("Receipt")
+        app.buttons["editor.assignByItem"].tap()
         app.buttons["editor.addLine"].tap()
         tapAndType(app.textFields["editor.line.0.label"], text: "Lunch")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
-        XCTAssertTrue(reveal(app.buttons["editor.line.0.splitEqually"]))
-        app.buttons["editor.line.0.splitEqually"].tap()
+        for name in ["Ana", "Bo"] {
+            let selector = app.switches["editor.line.0.person.\(name)"]
+            XCTAssertTrue(reveal(selector)); selector.tap()
+        }
         XCTAssertTrue(revealText("Rows match the entered total"))
         app.swipeDown()
         captureStoreScreenshot("01-receipt-editor")
@@ -233,6 +245,8 @@ final class SplitSlipJourneyTests: XCTestCase {
         captureStoreScreenshot("02-receipts")
         app.buttons["home.snapshot.0"].tap()
         containerExists("snapshot.readonly")
+        app.buttons["snapshot.person.0.expand"].tap()
+        XCTAssertTrue(revealText("Lunch"))
         captureStoreScreenshot("03-person-totals")
     }
 
@@ -268,7 +282,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.buttons["editor.finalize"].tap()
 
         // Back on home, the finalized receipt is listed.
-        XCTAssertTrue(app.staticTexts["Finalized"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
 
         // --- Relaunch WITHOUT reset: persistence proof ---
@@ -286,10 +300,22 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(revealText("15.00"))
         XCTAssertTrue(revealText("30.00"))
 
+        // Sharing always starts with a reviewed preview, never an automatic send.
+        let share = app.buttons["snapshot.share"]
+        XCTAssertTrue(reveal(share))
+        share.tap()
+        XCTAssertTrue(app.staticTexts["share.preview"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["share.preview"].label.contains("30.00 USD"))
+        app.segmentedControls["share.format"].buttons["CSV"].tap()
+        XCTAssertTrue(app.staticTexts["share.preview"].label.contains("Person total"))
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "Reviewed CSV preview"; preview.lifetime = .keepAlways; add(preview)
+        app.buttons["Done"].tap()
+
         // Duplicate-to-correct forks a new linked draft.
         app.buttons["snapshot.duplicate"].tap()
         containerExists("editor.root", timeout: 5)
-        XCTAssertTrue(app.navigationBars["Correction draft"].exists)
+        XCTAssertTrue(app.navigationBars["Make a correction"].exists)
 
         // Canceling the correction must keep the snapshot (no data loss).
         app.buttons["editor.cancelCorrection"].tap()
@@ -298,6 +324,193 @@ final class SplitSlipJourneyTests: XCTestCase {
         alert.buttons["Cancel correction"].tap()
         containerExists("home.root", timeout: 5)
         XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
+    }
+
+    private func cancelFilePicker() {
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.waitForExistence(timeout: 2) { cancel.tap(); return }
+        let browse = app.buttons["Browse"].firstMatch
+        if browse.exists { browse.tap() }
+        if cancel.waitForExistence(timeout: 2) { cancel.tap(); return }
+        let close = app.buttons["Close"].firstMatch
+        if close.exists { close.tap(); return }
+        // Some system Files sheets expose dismissal through the native sheet
+        // gesture. This is outside the app's own non-gesture controls.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+    }
+
+    func testLargeTextDarkLayoutAndCanceledFileOperations() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL", "-ui-testing-dark"]
+        app.launch()
+        containerExists("home.root")
+        let home = XCTAttachment(screenshot: app.screenshot())
+        home.name = "Home — dark accessibility text"; home.lifetime = .keepAlways; add(home)
+        app.buttons["home.data"].tap()
+        let backup = app.buttons["data.backup"]
+        XCTAssertTrue(reveal(backup)); backup.tap()
+        cancelFilePicker()
+        let restore = app.buttons["data.restore"]
+        XCTAssertTrue(reveal(restore)); restore.tap()
+        cancelFilePicker()
+        app.buttons["Done"].tap()
+        app.buttons["home.newReceiptToolbar"].tap()
+        containerExists("editor.root")
+        XCTAssertTrue(app.tabBars.buttons["People"].isHittable)
+        let editor = XCTAttachment(screenshot: app.screenshot())
+        editor.name = "Editor — dark accessibility text"; editor.lifetime = .keepAlways; add(editor)
+    }
+
+    func testFixedPersonAmountsAndVisibleReceiptDeletion() throws {
+        freshLaunch()
+        buildMismatchedReceipt()
+        openTab("Receipt")
+        let printedTotal = app.textFields["editor.expectedTotal"]
+        XCTAssertTrue(reveal(printedTotal))
+        printedTotal.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        printedTotal.typeText("30.00"); commitKeyboard(printedTotal)
+        openTab("People")
+        let amount = app.textFields["editor.person.Ana.amount"]
+        XCTAssertTrue(reveal(amount)); tapAndType(amount, text: "10.00")
+        XCTAssertTrue(revealText("20.00"))
+        app.terminate(); app.launchArguments = ["-ui-testing"]; app.launch()
+        app.buttons["home.draft.0"].tap()
+        openTab("People")
+        XCTAssertTrue(reveal(amount)); XCTAssertEqual(amount.value as? String, "10.00")
+        XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
+        app.buttons["editor.finalize"].tap()
+        let snapshot = app.buttons["home.snapshot.0"]
+        XCTAssertTrue(snapshot.waitForExistence(timeout: 10)); snapshot.tap()
+        let person = app.buttons.matching(NSPredicate(format: "identifier == %@", "snapshot.person.0.expand")).firstMatch
+        XCTAssertTrue(reveal(person)); person.tap()
+        XCTAssertTrue(revealText("Appetizer"))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let delete = app.buttons["home.snapshot.0.delete"]
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Keep receipt"].tap()
+        XCTAssertTrue(snapshot.exists)
+        delete.tap(); app.alerts.buttons["Delete receipt"].tap()
+        app.terminate(); app.launch()
+        XCTAssertFalse(app.buttons["home.snapshot.0"].exists)
+    }
+
+    func testQuickSplitWithOnlyReceiptTotalAndPeople() throws {
+        freshLaunch()
+        app.buttons["home.newReceipt"].tap()
+        tapAndType(app.textFields["editor.expectedTotal"], text: "12.01")
+        XCTAssertEqual(app.textFields["editor.line.0.label"].value as? String, "Receipt total")
+        XCTAssertEqual(app.textFields["editor.line.0.amount"].value as? String, "12.01")
+        openTab("People")
+        for name in ["Ana", "Bo"] {
+            tapAndType(app.textFields["editor.participantName"], text: name)
+            app.buttons["editor.addParticipant"].tap()
+        }
+        app.buttons["editor.splitEqually"].tap()
+        XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
+        app.buttons["editor.finalize"].tap()
+        let saved = app.buttons["home.snapshot.0"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 10)); saved.tap()
+        XCTAssertTrue(revealText("6.01"))
+        XCTAssertTrue(revealText("6.00"))
+        app.buttons["snapshot.person.0.expand"].tap()
+        XCTAssertTrue(revealText("Receipt total"))
+    }
+
+    func testFinalizedPersonExpandsTheirAssignedItems() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "ABAAAAAA-0000-0000-0000-000000000001"]
+        app.launch()
+        app.buttons["home.draft.0"].tap()
+        openTab("Receipt")
+        tapAndType(app.textFields["editor.expectedTotal"], text: "5.00")
+        let selector = app.switches["editor.line.0.person.Ana"]
+        XCTAssertTrue(reveal(selector)); selector.tap()
+        app.buttons["editor.finalize"].tap()
+        let saved = app.buttons["home.snapshot.0"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 10)); saved.tap()
+        let expand = app.buttons["snapshot.person.0.expand"]
+        XCTAssertTrue(reveal(expand)); expand.tap()
+        let item = app.descendants(matching: .any)["snapshot.person.0.item.BBBBBBBB-0000-0000-0000-0000000000B1"]
+        XCTAssertTrue(revealExists(item), app.debugDescription)
+        XCTAssertTrue(revealText("5.00"))
+        let expanded = XCTAttachment(screenshot: app.screenshot())
+        expanded.name = "Finalized person item details"; expanded.lifetime = .keepAlways; add(expanded)
+        expand.tap()
+        XCTAssertFalse(item.exists)
+    }
+
+    func testFilesBackupDeleteAndRestore() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "EEAAAAAA-0000-0000-0000-000000000001"]
+        app.launch()
+        containerExists("home.root")
+        app.buttons["home.data"].tap()
+        app.buttons["data.backup"].tap()
+        // Files remembers its last folder across runs. Always choose the same
+        // local root for export and import, including on a reused simulator.
+        let localExport = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "On My iPhone")).firstMatch
+        for _ in 0..<10 {
+            if localExport.waitForExistence(timeout: 1) { localExport.tap(); break }
+            let back = app.buttons["BackButton"].firstMatch
+            if back.waitForExistence(timeout: 1) { back.tap() } else { break }
+        }
+        let name = "SplitSlipTest-" + UUID().uuidString.prefix(8)
+        let identifiedFilename = app.textFields["DOCPicker.filenameTextField"]
+        let filename = identifiedFilename.waitForExistence(timeout: 3) ? identifiedFilename : app.textFields.firstMatch
+        XCTAssertTrue(filename.waitForExistence(timeout: 10), app.debugDescription)
+        filename.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        filename.typeText(String(name))
+        let save = app.buttons["Save"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 5)); save.tap()
+        let message = app.staticTexts["data.message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(message.label.contains("Backup saved"), message.label)
+        let delete = app.buttons["data.deleteAll"]
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Delete all local data"].tap()
+        XCTAssertTrue(message.label.contains("deleted"), message.label)
+        let restore = app.buttons["data.restore"]
+        XCTAssertTrue(reveal(restore)); restore.tap()
+        let browse = app.tabBars.buttons["Browse"].firstMatch
+        if browse.waitForExistence(timeout: 3) { browse.tap() }
+        let local = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "On My iPhone")).firstMatch
+        if local.waitForExistence(timeout: 3) { local.tap() }
+        let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", String(name))).firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10), app.debugDescription)
+        folder.tap()
+        let open = app.buttons["Open"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5), app.debugDescription); open.tap()
+        let replace = app.alerts.buttons["Replace library"]
+        XCTAssertTrue(replace.waitForExistence(timeout: 10), app.debugDescription); replace.tap()
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.label.contains("Backup restored"), message.label)
+        app.buttons["Done"].tap()
+        app.terminate(); app.launchArguments = ["-ui-testing"]; app.launch()
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 10))
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root")
+        XCTAssertTrue(reveal(app.buttons["editor.reference.remove"]), "Restored receipt must retain its photo")
+    }
+
+    func testDataDeletionRequiresConfirmationAndPersists() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "DDAAAAAA-0000-0000-0000-000000000001"]
+        app.launch()
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 10))
+        app.buttons["home.data"].tap()
+        let delete = app.buttons["data.deleteAll"]
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Keep my data"].tap()
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 5))
+        app.buttons["home.data"].tap()
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Delete all local data"].tap()
+        XCTAssertTrue(app.staticTexts["data.message"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["data.message"].label.contains("deleted"), app.staticTexts["data.message"].label)
+        app.buttons["Done"].tap()
+        app.terminate()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+        XCTAssertFalse(app.buttons["home.draft.0"].exists)
+        containerExists("home.empty")
     }
 
     func testValidationErrorsAreVisibleAndDestructiveRemovalConfirms() throws {
@@ -318,9 +531,12 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.buttons["editor.addLine"].tap()
         tapAndType(app.textFields["editor.line.0.label"], text: "Food")
         tapAndType(app.textFields["editor.line.0.amount"], text: "5.00")
-        let split = app.buttons["editor.line.0.splitEqually"]
-        XCTAssertTrue(reveal(split))
-        split.tap()
+        let selector = app.switches["editor.line.0.person.Ana"]
+        XCTAssertTrue(reveal(selector))
+        let originalX = selector.frame.midX
+        selector.tap()
+        XCTAssertEqual(selector.frame.midX, originalX, accuracy: 1)
+        XCTAssertLessThan(app.textFields["editor.line.0.weight.Ana"].frame.maxX, selector.frame.minX)
 
         openTab("People")
         let remove = app.buttons["editor.removeParticipant.Ana"]

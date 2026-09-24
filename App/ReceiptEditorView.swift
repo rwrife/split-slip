@@ -27,11 +27,13 @@ import UIKit
 /// detection, no hinge assumptions, no iPad implementation.
 struct ReceiptEditorView: View {
     @State private var model: ReceiptWorkspaceModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let onClose: () -> Void
     @State private var showDeleteParticipantAlert = false
     @State private var pendingRemoval: (id: UUID, name: String, rows: [String])?
     @State private var showCancelCorrectionAlert = false
     @State private var finalizedSnapshotID: UUID?
+    @State private var rowToRemove: (id: UUID, adjustment: Bool, label: String)?
     @State private var pickerItems: [PhotosPickerItem] = []
     /// Return-key / submit dismisses the soft keyboard so following controls
     /// stay reachable without gestures (accessibility: no drag-only flows).
@@ -52,6 +54,18 @@ struct ReceiptEditorView: View {
             // tabs, never inside the virtualized List, and away from the tab
             // bar so keyboard layout passes can't move tab items.
             reconciliationBar
+            HStack {
+                Button("Split equally", systemImage: "equal.circle.fill") { model.splitReceiptEqually() }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                    .disabled(model.draft.participants.isEmpty)
+                    .accessibilityIdentifier("editor.splitEqually")
+                if model.draft.receiptSplit != nil {
+                    Button("Assign by item") { model.useItemAssignments() }
+                        .accessibilityIdentifier("editor.assignByItem")
+                }
+            }
+            .padding(.horizontal).padding(.bottom, 8)
+            .frame(maxWidth: .infinity).background(SlipStyle.canvas)
             TabView(selection: Binding(
                 get: { model.selection.tab },
                 set: { model.selectTab($0) })) {
@@ -65,7 +79,9 @@ struct ReceiptEditorView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor.root")
-        .navigationTitle(model.isCorrection ? "Correction draft" : "Receipt")
+        .tint(SlipStyle.accent)
+        .navigationTitle(model.isCorrection ? "Make a correction" : "Let’s split it")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Finalize") {
@@ -94,9 +110,9 @@ struct ReceiptEditorView: View {
             }
             Button("Keep", role: .cancel) { pendingRemoval = nil }
         } message: { victim in
-            Text(victim.rows.isEmpty
-                 ? "This person is not on any allocated row."
-                 : "Their rows (“\(victim.rows.joined(separator: ", "))”) will need new recipients — nothing is reassigned silently.")
+            Text(model.draft.receiptSplit != nil
+                 ? "Their fixed amount will be removed and the remainder recalculated for the remaining people."
+                 : (victim.rows.isEmpty ? "This person is not on any allocated row." : "Their rows (“\(victim.rows.joined(separator: ", "))”) will need new recipients — nothing is reassigned silently."))
         }
         .alert("Cancel this correction?", isPresented: $showCancelCorrectionAlert) {
             Button("Cancel correction", role: .destructive) {
@@ -107,6 +123,15 @@ struct ReceiptEditorView: View {
         } message: {
             Text("The finalized receipt you duplicated stays exactly as it is.")
         }
+        .alert("Remove this item?", isPresented: Binding(get: { rowToRemove != nil }, set: { if !$0 { rowToRemove = nil } })) {
+            Button("Remove item", role: .destructive) {
+                if let row = rowToRemove {
+                    if row.adjustment { model.removeAdjustment(row.id) } else { model.removeLine(row.id) }
+                }
+                rowToRemove = nil
+            }
+            Button("Keep item", role: .cancel) { rowToRemove = nil }
+        } message: { Text("\(rowToRemove?.label ?? "This item") and its assignments will be removed. Check your receipt total afterward.") }
         .onChange(of: pickerItems, initial: false) { _, items in
             guard let item = items.first else { return }
             Task {
@@ -135,7 +160,24 @@ struct ReceiptEditorView: View {
         let selectedRowLabel = model.draft.lines.first(where: { $0.id == model.selection.selectedRowID })?.label
             ?? model.draft.adjustments.first(where: { $0.id == model.selection.selectedRowID })?.label
         let selectedPersonName = model.draft.participants.first(where: { $0.id == model.selection.selectedParticipantID })?.displayName
-        return VStack(spacing: 2) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        Text("THE RECEIPT TOTAL").font(.caption2.weight(.bold)).tracking(1)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("\(model.draft.expectedTotal) \(model.draft.currency.rawValue)")
+                        .font(.system(dynamicTypeSize.isAccessibilitySize ? .headline : .title2, design: .rounded, weight: .bold)).monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Receipt total \(model.draft.expectedTotal) \(model.draft.currency.rawValue)")
+                }
+                Spacer()
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Image(systemName: model.canFinalize ? "checkmark.seal.fill" : "receipt")
+                        .font(.title).foregroundStyle(SlipStyle.accent).accessibilityHidden(true)
+                }
+            }
             if let difference = model.difference(), difference != .zero {
                 Label {
                     Text(difference.minorUnits > 0
@@ -158,18 +200,20 @@ struct ReceiptEditorView: View {
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("editor.bar.unresolved")
                 }
-                Spacer(minLength: 4)
-                Text("Line: \(selectedRowLabel ?? "none") · Person: \(selectedPersonName ?? "none")")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("editor.bar.selection")
+                if selectedRowLabel != nil || selectedPersonName != nil {
+                    Spacer(minLength: 4)
+                    Text("Line: \(selectedRowLabel ?? "none") · Person: \(selectedPersonName ?? "none")")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("editor.bar.selection")
+                }
             }
         }
         .font(.footnote)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
-        .padding(.vertical, 6)
-        .background(.bar)
+        .padding(.vertical, 14)
+        .background(SlipStyle.canvas)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor.reconcileBar")
     }
@@ -179,12 +223,15 @@ struct ReceiptEditorView: View {
     private var receiptTab: some View {
         List {
             headerSection
-            referenceSection
             linesSection
             adjustmentsSection
+            referenceSection
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor.receiptTab")
+        .scrollContentBackground(.hidden)
+        .background(SlipStyle.canvas)
+        .buttonStyle(.borderless)
     }
 
     private var headerSection: some View {
@@ -254,10 +301,40 @@ struct ReceiptEditorView: View {
     private var peopleTab: some View {
         List {
             participantsSection
+            personAmountsSection
             reviewSection
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor.peopleTab")
+        .scrollContentBackground(.hidden)
+        .background(SlipStyle.canvas)
+        .buttonStyle(.borderless)
+    }
+
+    private var personAmountsSection: some View {
+        Section {
+            ForEach(model.draft.participants, id: \.id) { person in
+                VStack(alignment: .leading, spacing: 6) {
+                    let total = model.personReviews().first { $0.id == person.id }?.total
+                    LabeledContent(person.displayName) {
+                        Text(total?.description ?? "—").monospacedDigit()
+                    }
+                    TextField("Automatic share", text: Binding(
+                        get: { model.personAmountInput[person.id] ?? "" },
+                        set: { model.setPersonAmount(person.id, $0) }))
+                        .keyboardType(.decimalPad)
+                        .accessibilityLabel("Amount for \(person.displayName)")
+                        .accessibilityIdentifier("editor.person.\(person.displayName).amount")
+                        .focused($focusedField, equals: "personAmount:\(person.id)")
+                    Text(model.draft.receiptSplit == nil ? "Currently assigned by item · enter an amount to split the whole receipt" : (model.draft.receiptSplit?[person.id] == nil ? "Automatic · shares the remainder" : "Fixed amount · clear to make automatic"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let message = model.fieldMessages["personAmount:\(person.id)"] {
+                        fieldError(message, key: "personAmount:\(person.id)")
+                    }
+                }
+            }
+        } header: { Text("Split the receipt") }
+        footer: { Text("Enter an amount for anyone paying a fixed share. The rest is split equally among the others and updates when receipt items change. Extra cents go in people order.") }
     }
 
     private var participantsSection: some View {
@@ -282,15 +359,18 @@ struct ReceiptEditorView: View {
                             .accessibilityElement()
                     }
                     Spacer()
-                    Button(isSelected ? "Deselect \(participant.displayName)" : "Select \(participant.displayName)") {
+                    Button(isSelected ? "Deselect" : "Select") {
                         model.selectParticipant(isSelected ? nil : participant.id)
                     }
                     .accessibilityIdentifier("editor.person.\(participant.displayName).select")
-                    Button("Remove \(participant.displayName)") {
+                    Button {
                         pendingRemoval = (participant.id, participant.displayName,
                                           model.affectedRowLabels(forRemoval: participant.id))
                         showDeleteParticipantAlert = true
+                    } label: {
+                        Image(systemName: "person.crop.circle.badge.minus").frame(minWidth: 44, minHeight: 44)
                     }
+                    .accessibilityLabel("Remove \(participant.displayName)")
                     .accessibilityIdentifier("editor.removeParticipant.\(participant.displayName)")
                 }
             }
@@ -311,13 +391,17 @@ struct ReceiptEditorView: View {
     // MARK: - Lines and adjustments (Receipt tab)
 
     private var linesSection: some View {
-        Section("Lines") {
+        Section {
             ForEach(Array(model.draft.lines.enumerated()), id: \.element.id) { index, line in
                 lineRow(line, index: index)
             }
-            Button("Add line") { model.addLine() }
-                .accessibilityIdentifier("editor.addLine")
-        }
+            Button { model.addLine() } label: {
+                Label("Add an item", systemImage: "plus.circle.fill").frame(minHeight: 44)
+            }.accessibilityIdentifier("editor.addLine")
+        } header: { Text("What’s on the receipt?") }
+        footer: { Text(model.draft.totalOnlyLineID != nil
+            ? "This item follows your receipt total. Add people and tap Split equally, or add individual items instead."
+            : "Enter each printed line total, then choose who shares it.") }
     }
 
     private func lineRow(_ line: ReceiptLine, index: Int) -> some View {
@@ -341,6 +425,10 @@ struct ReceiptEditorView: View {
                     model.selectRow(isSelected ? nil : line.id)
                 }
                 .accessibilityIdentifier("editor.line.\(index).select")
+                Button { rowToRemove = (line.id, false, line.label) } label: {
+                    Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                }.accessibilityLabel("Remove \(line.label)")
+                    .accessibilityIdentifier("editor.line.\(index).remove")
             }
             if let message = model.fieldMessages["line:\(line.id):label"] {
                 fieldError(message, key: "line:\(line.id):label")
@@ -356,8 +444,8 @@ struct ReceiptEditorView: View {
             if let message = model.fieldMessages["line:\(line.id):amount"] {
                 fieldError(message, key: "line:\(line.id):amount")
             }
-            allocationEditor(rowID: line.id, isAdjustment: false, index: index,
-                             allocation: model.draft.lineAllocations[line.id] ?? RowAllocation(shares: []))
+            if model.draft.receiptSplit == nil { allocationEditor(rowID: line.id, isAdjustment: false, index: index,
+                             allocation: model.draft.lineAllocations[line.id] ?? RowAllocation(shares: [])) }
             if model.draft.rowsNeedingReview.contains(line.id) {
                 Label("Needs review after a participant was removed", systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -369,7 +457,7 @@ struct ReceiptEditorView: View {
     }
 
     private var adjustmentsSection: some View {
-        Section("Adjustments (fees, discounts)") {
+        Section("The little extras") {
             ForEach(Array(model.draft.adjustments.enumerated()), id: \.element.id) { index, adjustment in
                 adjustmentRow(adjustment, index: index)
             }
@@ -398,6 +486,10 @@ struct ReceiptEditorView: View {
                     model.selectRow(isSelected ? nil : adjustment.id)
                 }
                 .accessibilityIdentifier("editor.adjustment.\(index).select")
+                Button { rowToRemove = (adjustment.id, true, adjustment.label) } label: {
+                    Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                }.accessibilityLabel("Remove \(adjustment.label)")
+                    .accessibilityIdentifier("editor.adjustment.\(index).remove")
             }
             TextField("Amount (− for discount)", text: Binding(
                 get: { model.adjustmentAmountInput[adjustment.id] ?? "" },
@@ -410,8 +502,8 @@ struct ReceiptEditorView: View {
             if let message = model.fieldMessages["adjustment:\(adjustment.id):amount"] {
                 fieldError(message, key: "adjustment:\(adjustment.id):amount")
             }
-            allocationEditor(rowID: adjustment.id, isAdjustment: true, index: index,
-                             allocation: model.draft.adjustmentAllocations[adjustment.id] ?? RowAllocation(shares: []))
+            if model.draft.receiptSplit == nil { allocationEditor(rowID: adjustment.id, isAdjustment: true, index: index,
+                             allocation: model.draft.adjustmentAllocations[adjustment.id] ?? RowAllocation(shares: [])) }
         }
         .accessibilityElement(children: .contain)
     }
@@ -420,31 +512,37 @@ struct ReceiptEditorView: View {
         let prefix = isAdjustment ? "adjustment" : "line"
         return VStack(alignment: .leading, spacing: 6) {
             if allocation.isEmpty {
-                Label("No one yet — unresolved, never shared automatically", systemImage: "questionmark.circle")
+                Label("Who’s sharing this? Choose people below.", systemImage: "person.crop.circle.badge.questionmark")
                     .font(.footnote)
                     .foregroundStyle(.orange)
                     .accessibilityIdentifier("editor.\(prefix).\(index).unresolved")
             }
-            Button("Split equally") { model.assignEqually(rowID: rowID, isAdjustment: isAdjustment) }
-                .accessibilityIdentifier("editor.\(prefix).\(index).splitEqually")
             ForEach(model.draft.participants, id: \.id) { participant in
                 let included = allocation.shares.first(where: { $0.participantID == participant.id })
-                HStack {
+                HStack(spacing: 16) {
+                    Text(participant.displayName).frame(maxWidth: .infinity, alignment: .leading)
+                    TextField("Weight", text: Binding(
+                        get: { included.map { String($0.weight) } ?? "" },
+                        set: { model.setWeight(participantID: participant.id, onRow: rowID, isAdjustment: isAdjustment, raw: $0) }))
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 56, height: 44)
+                        .background(SlipStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
+                        .opacity(included == nil ? 0 : 1)
+                        .disabled(included == nil)
+                        .accessibilityHidden(included == nil)
+                        .accessibilityLabel("Share weight for \(participant.displayName)")
+                        .accessibilityIdentifier("editor.\(prefix).\(index).weight.\(participant.displayName)")
+                        .focused($focusedField, equals: "weight:\(prefix):\(index):\(participant.displayName)")
+                        .onSubmit { focusedField = nil }
                     Toggle(participant.displayName, isOn: Binding(
                         get: { included != nil },
                         set: { _ in model.toggleParticipant(participant.id, onRow: rowID, isAdjustment: isAdjustment) }))
+                        .labelsHidden().fixedSize()
                         .accessibilityIdentifier("editor.\(prefix).\(index).person.\(participant.displayName)")
-                    if let included {
-                        TextField("Weight", text: Binding(
-                            get: { String(included.weight) },
-                            set: { model.setWeight(participantID: participant.id, onRow: rowID, isAdjustment: isAdjustment, raw: $0) }))
-                            .keyboardType(.numberPad)
-                            .frame(width: 52)
-                            .accessibilityIdentifier("editor.\(prefix).\(index).weight.\(participant.displayName)")
-                .focused($focusedField, equals: "weight:\(prefix):\(index):\(participant.displayName)")
-                .onSubmit { focusedField = nil }
-                    }
                 }
+                .padding(.vertical, 10)
+
             }
         }
     }

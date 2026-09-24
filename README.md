@@ -4,7 +4,7 @@ Local-first iPhone receipt splitter for shared meals and purchases: assign items
 
 ## Status
 
-**Issue #4 (reference image + accessible workspace continuity) landed pending native CI evidence; later milestones remain planned.** The app now runs the real workflow: create/open drafts, currency + printed total + participants + manual lines and fee/discount adjustments, equal/weighted explicit recipient assignment, visible mismatch and unresolved rows, blocked finalization until invariants hold, immutable finalized snapshots with duplicate-to-correct, plus an optional metadata-stripped reference photo (PhotosPicker, selected assets only), Receipt/People tabs with a persistent reconciliation bar, and workspace selection that survives navigation, relaunch and rotation (execution recorded on the PR, not assumed). Backup/restore/export/deletion (#5), integrated regression + real iPhone evidence (#6), and signed release/TestFlight handoff (#7) remain planned. No payments, accounts, OCR or network features exist — by design. The milestones below and [PLAN.md](PLAN.md) define the implementation contract.
+**Manual splitting and photo workspace are implemented; sharing, backup/restore, and a refreshed layout are in active verification.** The app includes receipt cards, reviewed text/CSV exports, versioned private folder backups, validated journaled replacement with recovery copies, and confirmed deletion. See [privacy](docs/privacy.md), [support](docs/support.md), and the [release evidence gates](docs/release-checklist.md). Native pinned CI, real-iPhone checks, and signed/processed TestFlight evidence remain required; source implementation is not a release-completion claim. No payments, accounts, OCR, or runtime network features exist.
 
 ## Why / who
 

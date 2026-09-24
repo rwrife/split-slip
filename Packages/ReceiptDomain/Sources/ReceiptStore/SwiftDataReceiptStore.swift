@@ -51,7 +51,7 @@ public final class SnapshotRecord {
 /// snapshots are append-only (a second store of the same id is rejected).
 /// Unknown algorithm versions fail closed on read. Failed writes surface as
 /// `StoreFailure.writeFailed` after rollback, so previously stored bytes survive.
-public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked Sendable {
+public final class SwiftDataReceiptStore: ReceiptLibraryStore, @unchecked Sendable {
     public let container: ModelContainer
 
     /// - Parameter url: local store URL, or nil for an in-memory store (tests).
@@ -85,16 +85,16 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
         let context = ModelContext(container)
         let id = draft.id
         let descriptor = FetchDescriptor<DraftRecord>(predicate: #Predicate { $0.draftID == id })
-        if let existing = try? context.fetch(descriptor).first {
+        if let existing = try context.fetch(descriptor).first {
             existing.schemaVersion = AlgorithmVersion.current.schema
-            existing.allocationRuleVersion = AlgorithmVersion.current.allocationRule
+            existing.allocationRuleVersion = draft.receiptSplit == nil ? 1 : 2
             existing.updatedAt = Date()
             existing.payload = data
         } else {
             context.insert(DraftRecord(
                 draftID: id,
                 schemaVersion: AlgorithmVersion.current.schema,
-                allocationRuleVersion: AlgorithmVersion.current.allocationRule,
+                allocationRuleVersion: draft.receiptSplit == nil ? 1 : 2,
                 updatedAt: Date(),
                 payload: data))
         }
@@ -109,7 +109,7 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
     public func loadDraft(id: UUID) throws -> ReceiptDraft {
         let context = ModelContext(container)
         let descriptor = FetchDescriptor<DraftRecord>(predicate: #Predicate { $0.draftID == id })
-        guard let record = try? context.fetch(descriptor).first else {
+        guard let record = try context.fetch(descriptor).first else {
             throw StoreFailure.missingDraft(id)
         }
         return try decodeDraft(record)
@@ -117,7 +117,7 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
 
     public func loadAllDrafts() throws -> [ReceiptDraft] {
         let context = ModelContext(container)
-        let records = (try? context.fetch(FetchDescriptor<DraftRecord>())) ?? []
+        let records = try context.fetch(FetchDescriptor<DraftRecord>())
         return try records.map(decodeDraft)
     }
 
@@ -125,7 +125,10 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
         try AlgorithmVersion.enforceRestorable(
             AlgorithmVersion(schema: record.schemaVersion, allocationRule: record.allocationRuleVersion))
         do {
-            return try decoder.decode(ReceiptDraft.self, from: record.payload)
+            let draft = try decoder.decode(ReceiptDraft.self, from: record.payload)
+            guard draft.id == record.draftID else { throw LibraryError.invalid("Stored draft identity does not match its record.") }
+            try ReceiptLibrary(drafts: [draft]).validate()
+            return draft
         } catch {
             throw StoreFailure.decodingFailed("draft \(record.draftID): \(error)")
         }
@@ -134,7 +137,7 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
     public func deleteDraft(id: UUID) throws {
         let context = ModelContext(container)
         let descriptor = FetchDescriptor<DraftRecord>(predicate: #Predicate { $0.draftID == id })
-        guard let record = try? context.fetch(descriptor).first else {
+        guard let record = try context.fetch(descriptor).first else {
             throw StoreFailure.missingDraft(id)
         }
         context.delete(record)
@@ -158,7 +161,7 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
         let context = ModelContext(container)
         let id = snapshot.id
         let descriptor = FetchDescriptor<SnapshotRecord>(predicate: #Predicate { $0.snapshotID == id })
-        guard (try? context.fetch(descriptor).first) == nil else {
+        guard (try context.fetch(descriptor).first) == nil else {
             // Snapshots are immutable: never overwrite an existing record.
             throw StoreFailure.duplicateIdentity("snapshot \(id) already stored")
         }
@@ -180,13 +183,18 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
     public func loadSnapshot(id: UUID) throws -> FinalizedReceiptSnapshot {
         let context = ModelContext(container)
         let descriptor = FetchDescriptor<SnapshotRecord>(predicate: #Predicate { $0.snapshotID == id })
-        guard let record = try? context.fetch(descriptor).first else {
+        guard let record = try context.fetch(descriptor).first else {
             throw StoreFailure.missingSnapshot(id)
         }
         try AlgorithmVersion.enforceRestorable(
             AlgorithmVersion(schema: record.schemaVersion, allocationRule: record.allocationRuleVersion))
         do {
-            return try decoder.decode(FinalizedReceiptSnapshot.self, from: record.payload)
+            let snapshot = try decoder.decode(FinalizedReceiptSnapshot.self, from: record.payload)
+            guard snapshot.id == record.snapshotID, snapshot.sourceDraftID == record.sourceDraftID else {
+                throw LibraryError.invalid("Stored snapshot identity does not match its record.")
+            }
+            try ReceiptLibrary(snapshots: [snapshot]).validate()
+            return snapshot
         } catch {
             throw StoreFailure.decodingFailed("snapshot \(id): \(error)")
         }
@@ -194,16 +202,47 @@ public final class SwiftDataReceiptStore: DraftStore, SnapshotStore, @unchecked 
 
     public func loadAllSnapshots() throws -> [FinalizedReceiptSnapshot] {
         let context = ModelContext(container)
-        let records = (try? context.fetch(FetchDescriptor<SnapshotRecord>())) ?? []
+        let records = try context.fetch(FetchDescriptor<SnapshotRecord>())
         return try records.map { record in
             try AlgorithmVersion.enforceRestorable(
                 AlgorithmVersion(schema: record.schemaVersion, allocationRule: record.allocationRuleVersion))
             do {
-                return try decoder.decode(FinalizedReceiptSnapshot.self, from: record.payload)
+                let snapshot = try decoder.decode(FinalizedReceiptSnapshot.self, from: record.payload)
+            guard snapshot.id == record.snapshotID, snapshot.sourceDraftID == record.sourceDraftID else {
+                throw LibraryError.invalid("Stored snapshot identity does not match its record.")
+            }
+            try ReceiptLibrary(snapshots: [snapshot]).validate()
+            return snapshot
             } catch {
                 throw StoreFailure.decodingFailed("snapshot \(record.snapshotID): \(error)")
             }
         }
     }
+    public func replaceLibrary(_ library: ReceiptLibrary) throws {
+        try library.validate()
+        // Encode everything before touching the context. A single save commits both collections.
+        let drafts = try library.drafts.map { ($0, try encoder.encode($0)) }
+        let snapshots = try library.snapshots.map { ($0, try encoder.encode($0)) }
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        do {
+            for row in try context.fetch(FetchDescriptor<DraftRecord>()) { context.delete(row) }
+            for row in try context.fetch(FetchDescriptor<SnapshotRecord>()) { context.delete(row) }
+            for (draft, data) in drafts {
+                context.insert(DraftRecord(draftID: draft.id, schemaVersion: AlgorithmVersion.current.schema,
+                    allocationRuleVersion: draft.receiptSplit == nil ? 1 : 2, updatedAt: Date(), payload: data))
+            }
+            for (snapshot, data) in snapshots {
+                context.insert(SnapshotRecord(snapshotID: snapshot.id, sourceDraftID: snapshot.sourceDraftID,
+                    finalizedAt: snapshot.finalizedAt, schemaVersion: snapshot.algorithmVersion.schema,
+                    allocationRuleVersion: snapshot.algorithmVersion.allocationRule, payload: data))
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            throw StoreFailure.writeFailed("replaceLibrary: \(error)")
+        }
+    }
+
 }
 #endif

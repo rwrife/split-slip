@@ -49,6 +49,7 @@ public final class ReceiptWorkspaceModel {
 
     // Raw user text (kept separate so invalid input never corrupts stored amounts).
     public var expectedTotalInput: String = ""
+    public var personAmountInput: [UUID: String] = [:]
     public var participantNameInput: String = ""
     public var lineLabelInput: [UUID: String] = [:]
     public var lineAmountInput: [UUID: String] = [:]
@@ -74,6 +75,7 @@ public final class ReceiptWorkspaceModel {
         self.continuity = continuity
         self.selection = continuity?.loadSelection(receiptID: draft.id) ?? WorkspaceSelection()
         self.referenceImageURL = try? images?.referenceImageURL(receiptID: draft.id)
+        self.personAmountInput = draft.receiptSplit?.mapValues(\.description) ?? [:]
         self.expectedTotalInput = draft.expectedTotal == .zero ? "" : draft.expectedTotal.description
         for line in draft.lines {
             lineLabelInput[line.id] = line.label
@@ -187,7 +189,7 @@ public final class ReceiptWorkspaceModel {
     // MARK: - Receipt header
 
     public func setCurrency(_ currency: SupportedCurrency) {
-        guard draft.lines.isEmpty && draft.adjustments.isEmpty else {
+        guard (draft.lines.isEmpty || draft.totalOnlyLineID != nil) && draft.adjustments.isEmpty else {
             setFieldMessage("currency", "Currency is fixed once the receipt has rows.")
             return
         }
@@ -200,12 +202,14 @@ public final class ReceiptWorkspaceModel {
         expectedTotalInput = raw
         guard !raw.isEmpty else {
             draft.expectedTotal = .zero
+            syncTotalOnlyItem()
             setFieldMessage("expectedTotal", nil)
             persist()
             return
         }
         do {
             draft.expectedTotal = try MinorAmount(parsing: raw, currency: draft.currency)
+            syncTotalOnlyItem()
             setFieldMessage("expectedTotal", nil)
             persist()
         } catch let error as MoneyParseError {
@@ -213,6 +217,13 @@ public final class ReceiptWorkspaceModel {
         } catch {
             setFieldMessage("expectedTotal", "Could not read that amount.")
         }
+    }
+
+    private func syncTotalOnlyItem() {
+        guard let id = draft.totalOnlyLineID,
+              let index = draft.lines.firstIndex(where: { $0.id == id }) else { return }
+        draft.lines[index].amount = draft.expectedTotal
+        lineAmountInput[id] = draft.expectedTotal.description
     }
 
     // MARK: - Participants
@@ -248,12 +259,23 @@ public final class ReceiptWorkspaceModel {
 
     public func removeParticipant(id: UUID) {
         draft.removeParticipant(id: id)
+        personAmountInput[id] = nil
+        setFieldMessage("personAmount:\(id)", nil)
+        if draft.receiptSplit != nil { draft.rowsNeedingReview = [] }
         persist()
     }
 
     // MARK: - Lines
 
     public func addLine() {
+        if let id = draft.totalOnlyLineID {
+            draft.lines.removeAll { $0.id == id }
+            draft.lineAllocations[id] = nil
+            draft.rowsNeedingReview.remove(id)
+            lineAmountInput[id] = nil
+            lineLabelInput[id] = nil
+            draft.totalOnlyLineID = nil
+        }
         guard draft.lines.count < ReceiptLimits.maximumLinesPerReceipt else {
             setFieldMessage("addLine", DomainMessages.receiptValidation(.tooManyLines(count: draft.lines.count + 1)))
             return
@@ -275,6 +297,7 @@ public final class ReceiptWorkspaceModel {
         lineAmountInput[id] = raw
         guard !raw.isEmpty else {
             if let index = draft.lines.firstIndex(where: { $0.id == id }) {
+                if draft.totalOnlyLineID == id { draft.totalOnlyLineID = nil }
                 draft.lines[index].amount = .zero
                 setFieldMessage("line:\(id):amount", nil)
                 persist()
@@ -288,6 +311,7 @@ public final class ReceiptWorkspaceModel {
                 return
             }
             if let index = draft.lines.firstIndex(where: { $0.id == id }) {
+                if draft.totalOnlyLineID == id { draft.totalOnlyLineID = nil }
                 draft.lines[index].amount = parsed
                 setFieldMessage("line:\(id):amount", nil)
                 persist()
@@ -300,6 +324,7 @@ public final class ReceiptWorkspaceModel {
     }
 
     public func removeLine(_ id: UUID) {
+        if draft.totalOnlyLineID == id { draft.totalOnlyLineID = nil }
         draft.lines.removeAll { $0.id == id }
         draft.lineAllocations[id] = nil
         draft.rowsNeedingReview.remove(id)
@@ -315,6 +340,7 @@ public final class ReceiptWorkspaceModel {
             setFieldMessage("addAdjustment", DomainMessages.receiptValidation(.tooManyAdjustments(count: draft.adjustments.count + 1)))
             return
         }
+        draft.totalOnlyLineID = nil
         setFieldMessage("addAdjustment", nil)
         draft.adjustments.append(ReceiptAdjustment(label: "", amount: .zero))
         persist()
@@ -414,6 +440,40 @@ public final class ReceiptWorkspaceModel {
         persist()
     }
 
+    /// A single receipt-wide action. Future item edits and newly added people
+    /// continue to participate in the automatic remainder.
+    public func splitReceiptEqually() {
+        draft.receiptSplit = [:]
+        personAmountInput = [:]
+        fieldMessages = fieldMessages.filter { !$0.key.hasPrefix("personAmount:") }
+        draft.rowsNeedingReview = []
+        persist()
+    }
+
+    public func useItemAssignments() {
+        draft.receiptSplit = nil
+        personAmountInput = [:]
+        fieldMessages = fieldMessages.filter { !$0.key.hasPrefix("personAmount:") }
+        persist()
+    }
+
+    public func setPersonAmount(_ id: UUID, _ raw: String) {
+        guard draft.participants.contains(where: { $0.id == id }) else { return }
+        personAmountInput[id] = raw
+        let key = "personAmount:\(id)"
+        do {
+            let amount = raw.isEmpty ? nil : try MinorAmount(parsing: raw, currency: draft.currency)
+            guard amount?.isNegative != true else { throw LibraryError.invalid("Person amounts cannot be negative.") }
+            if draft.receiptSplit == nil { draft.receiptSplit = [:] }
+            draft.rowsNeedingReview = []
+            draft.receiptSplit?[id] = amount
+            setFieldMessage(key, nil)
+            persist()
+        } catch {
+            setFieldMessage(key, "Enter a valid nonnegative amount, or clear it for an automatic share.")
+        }
+    }
+
     // MARK: - Reconciliation views
 
     public func computedTotal() -> MinorAmount? {
@@ -447,6 +507,12 @@ public final class ReceiptWorkspaceModel {
     /// Per-person review: totals once every row resolves, plus a note beside
     /// each extra rounding cent and the labels of rows still unresolved.
     public func personReviews() -> [PersonReview] {
+        if draft.receiptSplit != nil {
+            let totals = try? draft.personTotals()
+            return draft.participants.map { person in
+                PersonReview(participant: person, total: totals?[person], extraCentNotes: [], pendingRowLabels: [])
+            }
+        }
         let byID = Dictionary(uniqueKeysWithValues: draft.participants.map { ($0.id, $0) })
         var totals: [UUID: MinorAmount] = [:]
         var extraNotes: [UUID: [String]] = [:]
@@ -499,7 +565,7 @@ public final class ReceiptWorkspaceModel {
 
     /// Non-empty when finalization must stay blocked; each entry is visible copy.
     public func finalizationBlockers() -> [String] {
-        var blockers: [String] = []
+        var blockers = fieldMessages.filter { $0.key == "expectedTotal" || $0.key.hasPrefix("personAmount:") }.map(\.value)
         do {
             _ = try draft.validated()
         } catch let error as ReceiptValidationError {
@@ -531,7 +597,7 @@ public final class ReceiptWorkspaceModel {
             } catch let error as ReceiptValidationError {
                 blockers.append(DomainMessages.receiptValidation(error))
             } catch {
-                blockers.append("The receipt cannot be reconciled yet.")
+                blockers.append(error.localizedDescription)
             }
         }
         return blockers
@@ -552,17 +618,28 @@ public final class ReceiptWorkspaceModel {
         }
         do {
             let snapshot = try draft.finalize(finalizedAt: finalizedAt)
-            try store.storeSnapshot(snapshot)
-            // The draft's lifecycle ends with its snapshot; keep no stale draft
-            // row so the home list shows one receipt, not a ghost draft.
-            try? store.deleteDraft(id: draft.id)
-            // Ownership transfers for issue #4 collaborators: the snapshot
-            // inherits the reference image and the workspace selection under
-            // its own id; the draft's keys are released.
+            // Prepare the owned photo first so a failed copy cannot silently
+            // finalize a receipt without its reference. Keep the draft intact.
             if let images, referenceImageURL != nil {
-                try? images.copyReference(from: draft.id, to: snapshot.id)
-                try? images.clearReferenceImage(receiptID: draft.id)
+                try images.copyReference(from: draft.id, to: snapshot.id)
             }
+            do {
+                if let libraryStore = store as? any ReceiptLibraryStore {
+                    var library = try libraryStore.readLibrary()
+                    library.drafts.removeAll { $0.id == draft.id }
+                    library.snapshots.append(snapshot)
+                    try libraryStore.replaceLibrary(library)
+                } else {
+                    // Compatibility for minimal injected stores; the app uses
+                    // the transactional ReceiptLibraryStore path above.
+                    try store.storeSnapshot(snapshot)
+                    try store.deleteDraft(id: draft.id)
+                }
+            } catch {
+                try? images?.clearReferenceImage(receiptID: snapshot.id)
+                throw error
+            }
+            try? images?.clearReferenceImage(receiptID: draft.id)
             if let continuity {
                 continuity.copySelection(from: draft.id, to: snapshot.id)
                 continuity.clearSelection(receiptID: draft.id)

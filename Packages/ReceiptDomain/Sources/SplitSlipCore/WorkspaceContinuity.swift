@@ -60,6 +60,7 @@ public protocol ContinuityStore: Sendable {
     func loadSelection(receiptID: UUID) -> WorkspaceSelection?
     func saveSelection(_ selection: WorkspaceSelection, receiptID: UUID)
     func clearSelection(receiptID: UUID)
+    func clearAllSelections() throws
     /// Transfers a selection to a new receipt id (draft → finalized snapshot,
     /// or snapshot → correction fork). Absent source is a no-op.
     func copySelection(from sourceID: UUID, to destinationID: UUID)
@@ -85,6 +86,11 @@ public final class InMemoryContinuityStore: ContinuityStore, @unchecked Sendable
     public func clearSelection(receiptID: UUID) {
         lock.lock(); defer { lock.unlock() }
         storage[receiptID] = nil
+    }
+
+    public func clearAllSelections() throws {
+        lock.lock(); defer { lock.unlock() }
+        storage.removeAll()
     }
 
     public func copySelection(from sourceID: UUID, to destinationID: UUID) {
@@ -127,6 +133,13 @@ public final class FileContinuityStore: ContinuityStore, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         cache[receiptID] = nil
         flushLocked()
+    }
+
+    public func clearAllSelections() throws {
+        lock.lock(); defer { lock.unlock() }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: url, options: .atomic)
+        cache.removeAll()
     }
 
     public func copySelection(from sourceID: UUID, to destinationID: UUID) {

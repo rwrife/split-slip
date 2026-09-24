@@ -9,7 +9,7 @@ import ReceiptDomain
 /// This exists so the UI layer (and UI-test launches) can run against a
 /// deterministic store on any platform, while the app itself uses the
 /// SwiftData-backed `SwiftDataReceiptStore` shipped in `ReceiptStore`.
-public final class InMemoryReceiptStore: DraftStore, SnapshotStore, @unchecked Sendable {
+public final class InMemoryReceiptStore: ReceiptLibraryStore, @unchecked Sendable {
     private let lock = NSLock()
     private var drafts: [UUID: ReceiptDraft] = [:]
     private var snapshots: [UUID: FinalizedReceiptSnapshot] = [:]
@@ -72,4 +72,12 @@ public final class InMemoryReceiptStore: DraftStore, SnapshotStore, @unchecked S
     public func loadAllSnapshots() throws -> [FinalizedReceiptSnapshot] {
         try withLock { Array(snapshots.values) }
     }
+    public func replaceLibrary(_ library: ReceiptLibrary) throws {
+        try library.validate()
+        try withLock {
+            drafts = Dictionary(uniqueKeysWithValues: library.drafts.map { ($0.id, $0) })
+            snapshots = Dictionary(uniqueKeysWithValues: library.snapshots.map { ($0.id, $0) })
+        }
+    }
+
 }
