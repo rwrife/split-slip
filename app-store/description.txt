@@ -1,0 +1,12 @@
+Split shared meals and purchases with a clear total for each person. Split Slip lets you enter a receipt, choose who shares each item, and check the numbers before saving the result.
+
+ENTER YOUR RECEIPT
+Choose USD, EUR or GBP, enter the printed grand total, and add participant nicknames and item amounts. Record fee or discount adjustments explicitly.
+
+CHOOSE HOW TO SPLIT
+Assign items to selected people using equal shares or positive whole-number weights. Review unassigned rows and the difference between your entries and the receipt total.
+
+REVIEW AND SAVE
+Finalize only when every row is assigned and the totals match. Keep finalized receipts in local storage and review each person's share. Need a correction? Duplicate a finalized receipt into a linked draft while preserving the original.
+
+Split Slip organizes the arithmetic. You enter and review the amounts; the app does not scan receipts or send payments.
