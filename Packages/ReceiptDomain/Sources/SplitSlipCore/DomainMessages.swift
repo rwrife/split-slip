@@ -129,4 +129,19 @@ public enum DomainMessages {
             return "Duplicate record: \(detail)."
         }
     }
+
+    public static func referenceImage(_ error: ReferenceImageError) -> String {
+        switch error {
+        case .noData:
+            return "That image could not be read. Nothing was changed."
+        case let .tooLarge(byteCount):
+            return "That image is too large (\(byteCount) bytes; limit \(ReferenceImageLimits.maximumEncodedBytes)). Nothing was changed."
+        case let .storageFailed(detail):
+            return "The image could not be stored (\(detail)). The previous reference is unchanged."
+        case let .unsupportedFormat(format):
+            return "Images of type “\(format)” cannot be safely stripped of metadata. Use a photo or JPEG/PNG screenshot."
+        case .failedVerification:
+            return "That image looks corrupt or malformed. Nothing was changed."
+        }
+    }
 }
