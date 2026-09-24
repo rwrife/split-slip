@@ -201,6 +201,41 @@ final class SplitSlipJourneyTests: XCTestCase {
                        "Finalize must stay blocked while totals mismatch")
     }
 
+    private func captureStoreScreenshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testAppStoreScreenshots() throws {
+        freshLaunch()
+        app.buttons["home.newReceipt"].tap()
+        containerExists("editor.root")
+        tapAndType(app.textFields["editor.expectedTotal"], text: "30.00")
+        openTab("People")
+        tapAndType(app.textFields["editor.participantName"], text: "Ana")
+        app.buttons["editor.addParticipant"].tap()
+        tapAndType(app.textFields["editor.participantName"], text: "Bo")
+        app.buttons["editor.addParticipant"].tap()
+        openTab("Receipt")
+        app.buttons["editor.addLine"].tap()
+        tapAndType(app.textFields["editor.line.0.label"], text: "Lunch")
+        tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
+        XCTAssertTrue(reveal(app.buttons["editor.line.0.splitEqually"]))
+        app.buttons["editor.line.0.splitEqually"].tap()
+        XCTAssertTrue(revealText("Rows match the entered total"))
+        app.swipeDown()
+        captureStoreScreenshot("01-receipt-editor")
+        XCTAssertTrue(reveal(app.buttons["editor.finalize"]))
+        app.buttons["editor.finalize"].tap()
+        XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
+        captureStoreScreenshot("02-receipts")
+        app.buttons["home.snapshot.0"].tap()
+        containerExists("snapshot.readonly")
+        captureStoreScreenshot("03-person-totals")
+    }
+
     // MARK: - Journeys
 
     func testCreateAllocateMismatchFinalizeRelaunchDuplicate() throws {
