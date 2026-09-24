@@ -191,7 +191,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
 
         // Split equally across both people.
-        let split = app.buttons["editor.line.0.splitEqually"]
+        let split = app.buttons["editor.splitEqually"]
         XCTAssertTrue(reveal(split), "split-equally button never became hittable")
         split.tap()
 
@@ -312,6 +312,36 @@ final class SplitSlipJourneyTests: XCTestCase {
         editor.name = "Editor — dark accessibility text"; editor.lifetime = .keepAlways; add(editor)
     }
 
+    func testFixedPersonAmountsAndVisibleReceiptDeletion() throws {
+        freshLaunch()
+        buildMismatchedReceipt()
+        openTab("Receipt")
+        tapAndType(app.textFields["editor.expectedTotal"], text: "30.00")
+        openTab("People")
+        let amount = app.textFields["editor.person.Ana.amount"]
+        XCTAssertTrue(reveal(amount)); tapAndType(amount, text: "10.00")
+        XCTAssertTrue(revealText("20.00"))
+        app.terminate(); app.launchArguments = ["-ui-testing"]; app.launch()
+        app.buttons["home.draft.0"].tap()
+        openTab("People")
+        XCTAssertTrue(reveal(amount)); XCTAssertEqual(amount.value as? String, "10.00")
+        XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
+        app.buttons["editor.finalize"].tap()
+        let snapshot = app.buttons["home.snapshot.0"]
+        XCTAssertTrue(snapshot.waitForExistence(timeout: 10)); snapshot.tap()
+        let person = app.buttons.matching(NSPredicate(format: "identifier == %@", "snapshot.person.0.expand")).firstMatch
+        XCTAssertTrue(reveal(person)); person.tap()
+        XCTAssertTrue(revealText("Appetizer"))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let delete = app.buttons["home.snapshot.0.delete"]
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Keep receipt"].tap()
+        XCTAssertTrue(snapshot.exists)
+        delete.tap(); app.alerts.buttons["Delete receipt"].tap()
+        app.terminate(); app.launch()
+        XCTAssertFalse(app.buttons["home.snapshot.0"].exists)
+    }
+
     func testFilesBackupDeleteAndRestore() throws {
         app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "EEAAAAAA-0000-0000-0000-000000000001"]
         app.launch()
@@ -319,7 +349,8 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.buttons["home.data"].tap()
         app.buttons["data.backup"].tap()
         let name = "SplitSlipTest-" + UUID().uuidString.prefix(8)
-        let filename = app.textFields["DOCPicker.filenameTextField"]
+        let identifiedFilename = app.textFields["DOCPicker.filenameTextField"]
+        let filename = identifiedFilename.waitForExistence(timeout: 3) ? identifiedFilename : app.textFields.firstMatch
         XCTAssertTrue(filename.waitForExistence(timeout: 10), app.debugDescription)
         filename.tap(withNumberOfTaps: 3, numberOfTouches: 1)
         filename.typeText(String(name))
@@ -396,9 +427,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.buttons["editor.addLine"].tap()
         tapAndType(app.textFields["editor.line.0.label"], text: "Food")
         tapAndType(app.textFields["editor.line.0.amount"], text: "5.00")
-        let split = app.buttons["editor.line.0.splitEqually"]
-        XCTAssertTrue(reveal(split))
-        split.tap()
+        let selector = app.switches["editor.line.0.person.Ana"]
+        XCTAssertTrue(reveal(selector))
+        selector.tap()
 
         openTab("People")
         let remove = app.buttons["editor.removeParticipant.Ana"]

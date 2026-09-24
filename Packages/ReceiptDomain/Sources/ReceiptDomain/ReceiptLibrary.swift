@@ -22,10 +22,14 @@ public struct ReceiptLibrary: Codable, Sendable {
         for draft in drafts { try Self.validateDraft(draft) }
         for snapshot in snapshots {
             try AlgorithmVersion.validateRestorable(snapshot.algorithmVersion)
+            guard (snapshot.receiptSplit == nil) == (snapshot.algorithmVersion.allocationRule == 1) else {
+                throw LibraryError.invalid("The split method does not match its allocation version.")
+            }
             let draft = ReceiptDraft(id: snapshot.sourceDraftID, currency: snapshot.currency,
                 expectedTotal: snapshot.expectedTotal, participants: snapshot.participants,
                 lines: snapshot.lines, lineAllocations: snapshot.lineAllocations,
-                adjustments: snapshot.adjustments, adjustmentAllocations: snapshot.adjustmentAllocations)
+                adjustments: snapshot.adjustments, adjustmentAllocations: snapshot.adjustmentAllocations,
+                receiptSplit: snapshot.receiptSplit)
             try Self.validateDraft(draft)
             let recalculated = try draft.finalize(finalizedAt: snapshot.finalizedAt)
             guard recalculated.computedTotal == snapshot.computedTotal,
@@ -51,6 +55,10 @@ public struct ReceiptLibrary: Codable, Sendable {
         try require(lineIDs.count == draft.lines.count && adjustmentIDs.count == draft.adjustments.count && lineIDs.isDisjoint(with: adjustmentIDs), "Duplicate row IDs.")
         try require(Set(draft.lineAllocations.keys).isSubset(of: lineIDs) && Set(draft.adjustmentAllocations.keys).isSubset(of: adjustmentIDs), "An allocation refers to a missing row.")
         try require(draft.rowsNeedingReview.isSubset(of: lineIDs.union(adjustmentIDs)), "A review marker refers to a missing row.")
+        if let fixed = draft.receiptSplit {
+            try require(Set(fixed.keys).isSubset(of: people), "A fixed amount refers to a missing person.")
+            for value in fixed.values { try amount(value); try require(!value.isNegative, "Person amounts cannot be negative.") }
+        }
         try amount(draft.expectedTotal)
         try require(!draft.expectedTotal.isNegative, "Receipt totals must not be negative.")
         for name in draft.participants.map(\.displayName) + draft.lines.map(\.label) + draft.adjustments.map(\.label) {

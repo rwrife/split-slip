@@ -290,3 +290,77 @@ private final class FailingStore: DraftStore & SnapshotStore, @unchecked Sendabl
     func loadSnapshot(id: UUID) throws -> FinalizedReceiptSnapshot { try inner.loadSnapshot(id: id) }
     func loadAllSnapshots() throws -> [FinalizedReceiptSnapshot] { try inner.loadAllSnapshots() }
 }
+
+@Suite("Receipt-wide amounts and automatic remainder")
+struct ReceiptWideSplitTests {
+    @Test func fixedAmountsRebalanceAndSurviveRestore() throws {
+        let store = InMemoryReceiptStore()
+        let model = makeHappyModel(store: store)
+        model.participantNameInput = "Cy"; model.addParticipant()
+        model.splitReceiptEqually()
+        let people = model.draft.participants
+        let row = model.draft.lines[0].id
+        #expect(try model.draft.personTotals()[people[0]]?.minorUnits == 1000)
+        model.setPersonAmount(people[0].id, "8.00")
+        #expect(try model.draft.personTotals()[people[1]]?.minorUnits == 1100)
+        model.setPersonAmount(people[1].id, "9.00")
+        #expect(try model.draft.personTotals()[people[2]]?.minorUnits == 1300)
+        model.setLineAmount(row, "35.01")
+        model.setExpectedTotal("35.01")
+        #expect(try model.draft.personTotals()[people[0]]?.minorUnits == 800)
+        #expect(try model.draft.personTotals()[people[2]]?.minorUnits == 1801)
+        model.setPersonAmount(people[1].id, "")
+        #expect(try model.draft.personTotals()[people[1]]?.minorUnits == 1351)
+        #expect(try model.draft.personTotals()[people[2]]?.minorUnits == 1350)
+        let decoded = try JSONDecoder().decode(ReceiptDraft.self, from: JSONEncoder().encode(model.draft))
+        let snapshot = try decoded.finalize()
+        try ReceiptLibrary(snapshots: [snapshot]).validate()
+        #expect(snapshot.correctionDraft().receiptSplit == decoded.receiptSplit)
+        #expect(snapshot.personShares.map(\.totalMinorUnits) == [800, 1351, 1350])
+        #expect(ReceiptSummary.render(snapshot).contains("Bo: 13.51 USD"))
+        model.splitReceiptEqually()
+        #expect(try model.draft.personTotals()[people[0]]?.minorUnits == 1167)
+    }
+
+    @Test func overcommitAndInvalidInputBlockFinalizeWithoutDiscardingAmounts() throws {
+        let model = makeHappyModel(store: InMemoryReceiptStore())
+        let id = model.draft.participants[0].id
+        model.setPersonAmount(id, "31.00")
+        #expect(!model.canFinalize)
+        #expect(model.finalizationBlockers().contains { $0.contains("exceed") })
+        model.setPersonAmount(id, "10.00")
+        #expect(model.canFinalize)
+        model.setPersonAmount(id, "oops")
+        #expect(!model.canFinalize)
+        #expect(model.draft.receiptSplit?[id]?.minorUnits == 1000)
+        model.setPersonAmount(id, "")
+        #expect(model.canFinalize)
+        model.setPersonAmount(id, "0")
+        #expect(try model.draft.personTotals()[model.draft.participants[1]]?.minorUnits == 3000)
+    }
+
+    @Test func participantAndAdjustmentChangesRebalance() throws {
+        let model = makeHappyModel(store: InMemoryReceiptStore())
+        model.splitReceiptEqually()
+        model.setPersonAmount(model.draft.participants[0].id, "10")
+        model.participantNameInput = "Cy"; model.addParticipant()
+        model.addAdjustment()
+        let adjustment = model.draft.adjustments[0].id
+        model.setAdjustmentAmount(adjustment, "-2.01")
+        #expect(try model.draft.personTotals()[model.draft.participants[1]]?.minorUnits == 900)
+        #expect(try model.draft.personTotals()[model.draft.participants[2]]?.minorUnits == 899)
+        model.removeParticipant(id: model.draft.participants[0].id)
+        #expect(try model.draft.personTotals()[model.draft.participants[0]]?.minorUnits == 1400)
+        model.removeLine(model.draft.lines[0].id)
+        #expect(!model.canFinalize)
+    }
+
+    @Test func oldDraftsDecodeWithoutNewSplitField() throws {
+        let draft = makeHappyModel(store: InMemoryReceiptStore()).draft
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as! [String: Any]
+        json.removeValue(forKey: "receiptSplit")
+        let restored = try JSONDecoder().decode(ReceiptDraft.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(restored.receiptSplit == nil)
+        #expect(try restored.finalize().personShares.map(\.totalMinorUnits) == [1500, 1500])
+    }
+}

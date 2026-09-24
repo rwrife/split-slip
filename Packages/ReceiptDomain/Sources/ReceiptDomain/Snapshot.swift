@@ -17,7 +17,7 @@ public struct AlgorithmVersion: Hashable, Sendable, Codable, CustomStringConvert
     /// an explicit, testable rejection.
     public static func validateRestorable(_ version: AlgorithmVersion) throws {
         guard version.schema == 1 else { throw SnapshotVersionError.unsupportedSchema(version.schema) }
-        guard version.allocationRule == 1 else { throw SnapshotVersionError.unsupportedAllocationRule(version.allocationRule) }
+        guard (1...2).contains(version.allocationRule) else { throw SnapshotVersionError.unsupportedAllocationRule(version.allocationRule) }
     }
 
     public var description: String { "schema \(schema) / allocation rule \(allocationRule)" }
@@ -54,6 +54,7 @@ public struct FinalizedReceiptSnapshot: Identifiable, Hashable, Sendable, Codabl
     public let finalizedAt: Date
     public let algorithmVersion: AlgorithmVersion
 
+    public let receiptSplit: [UUID: MinorAmount]?
     public let currency: SupportedCurrency
     public let expectedTotal: MinorAmount
     public let computedTotal: MinorAmount
@@ -81,9 +82,11 @@ public struct FinalizedReceiptSnapshot: Identifiable, Hashable, Sendable, Codabl
         adjustments: [ReceiptAdjustment],
         adjustmentAllocations: [UUID: RowAllocation],
         personShares: [FinalizedPersonShare],
-        correctsSnapshotID: UUID?
+        correctsSnapshotID: UUID?,
+        receiptSplit: [UUID: MinorAmount]? = nil
     ) {
         self.id = id
+        self.receiptSplit = receiptSplit
         self.sourceDraftID = sourceDraftID
         self.finalizedAt = finalizedAt
         self.algorithmVersion = algorithmVersion
@@ -110,7 +113,8 @@ public struct FinalizedReceiptSnapshot: Identifiable, Hashable, Sendable, Codabl
             lineAllocations: lineAllocations,
             adjustments: adjustments,
             adjustmentAllocations: adjustmentAllocations,
-            correctionOfSnapshotID: id
+            correctionOfSnapshotID: id,
+            receiptSplit: receiptSplit
         )
     }
 }
@@ -158,6 +162,19 @@ public extension ReceiptDraft {
         // Explicit unassigned check before totals so the error names a row.
         for rowID in validatedDraft.unassignedRowIDs() {
             throw FinalizationError.reconciliation(.unassignedRow(rowID: rowID))
+        }
+
+        if receiptSplit != nil {
+            let totals = try validatedDraft.personTotals()
+            return FinalizedReceiptSnapshot(
+                sourceDraftID: id, finalizedAt: finalizedAt,
+                algorithmVersion: AlgorithmVersion(schema: 1, allocationRule: 2),
+                currency: currency, expectedTotal: expectedTotal, computedTotal: computed,
+                participants: participants, lines: lines, lineAllocations: lineAllocations,
+                adjustments: adjustments, adjustmentAllocations: adjustmentAllocations,
+                personShares: participants.map { FinalizedPersonShare(participant: $0,
+                    totalMinorUnits: totals[$0]!.minorUnits, rowShares: [:], rowRemainders: [:]) },
+                correctsSnapshotID: correctionOfSnapshotID, receiptSplit: receiptSplit)
         }
 
         // Row-level shares, accumulated per person with exact conservation.

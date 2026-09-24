@@ -21,7 +21,9 @@ public enum ReceiptSummary {
             }
             let total = people.reduce(Int64(0)) { $0 + $1.totalMinorUnits }
             output.append("\(personID == nil ? "Receipt total" : "Selected person total"): \(amount(total)) \(currency)")
-            output.append("Includes allocated fees, discounts, and rounding cents. Please review before settling up.")
+            output.append(snapshot.receiptSplit == nil
+                ? "Includes allocated fees, discounts, and rounding cents. Please review before settling up."
+                : "Whole-receipt split: fixed amounts first, then equal shares of the remainder. Includes fees, discounts, and rounding cents.")
             return output.joined(separator: "\n")
         case .csv:
             var output = [["Person", "Item", "Amount", "Currency"].map(cell).joined(separator: ",")]

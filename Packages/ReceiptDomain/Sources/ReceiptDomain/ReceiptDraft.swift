@@ -71,6 +71,8 @@ public struct RowAllocation: Hashable, Sendable, Codable {
 /// snapshot, never mutating it.
 public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
+    /// nil preserves item-by-item splitting; an empty map means everyone splits equally.
+    public var receiptSplit: [UUID: MinorAmount]?
     public var currency: SupportedCurrency
     /// The grand total printed on the receipt, entered by the user.
     public var expectedTotal: MinorAmount
@@ -97,9 +99,11 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
         adjustments: [ReceiptAdjustment] = [],
         adjustmentAllocations: [UUID: RowAllocation] = [:],
         correctionOfSnapshotID: UUID? = nil,
-        rowsNeedingReview: Set<UUID> = []
+        rowsNeedingReview: Set<UUID> = [],
+        receiptSplit: [UUID: MinorAmount]? = nil
     ) {
         self.id = id
+        self.receiptSplit = receiptSplit
         self.currency = currency
         self.expectedTotal = expectedTotal
         self.participants = participants
@@ -174,6 +178,7 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
     /// clearing that row's allocation so nothing is silently reallocated.
     public mutating func removeParticipant(id: UUID) {
         participants.removeAll { $0.id == id }
+        receiptSplit?[id] = nil
         for (rowID, allocation) in lineAllocations where allocation.shares.contains(where: { $0.participantID == id }) {
             lineAllocations[rowID] = RowAllocation(shares: [])
             rowsNeedingReview.insert(rowID)
@@ -210,6 +215,7 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
 
     /// Rows (line ids + adjustment ids) whose allocation is missing or empty.
     public func unassignedRowIDs() -> [UUID] {
+        if receiptSplit != nil && !participants.isEmpty { return [] }
         var unresolved: [UUID] = []
         for line in lines where lineAllocations[line.id]?.isEmpty ?? true {
             unresolved.append(line.id)
@@ -220,10 +226,38 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
         return unresolved
     }
 
+    private func receiptSplitTotals(_ fixed: [UUID: MinorAmount]) throws -> [ParticipantIdentity: MinorAmount] {
+        guard !participants.isEmpty else { throw LibraryError.invalid("Add people to split this receipt.") }
+        let known = Set(participants.map(\.id))
+        guard Set(fixed.keys).isSubset(of: known) else { throw LibraryError.invalid("A fixed amount refers to a missing person.") }
+        let total = try computedTotal().validated()
+        var remainder = total
+        var result: [ParticipantIdentity: MinorAmount] = [:]
+        for person in participants {
+            if let amount = fixed[person.id] {
+                _ = try amount.validated()
+                guard !amount.isNegative else { throw LibraryError.invalid("Person amounts cannot be negative.") }
+                remainder = try remainder.subtracting(amount)
+                result[person] = amount
+            }
+        }
+        guard !remainder.isNegative else { throw LibraryError.invalid("Fixed amounts exceed the receipt items total. Lower an amount or clear it to make it automatic.") }
+        let automatic = participants.filter { fixed[$0.id] == nil }
+        if automatic.isEmpty {
+            guard remainder == .zero else { throw LibraryError.invalid("Clear one person's amount to split the remaining balance automatically.") }
+        } else {
+            for share in try AllocationEngine.allocateEqually(amount: remainder, to: automatic) {
+                result[share.participant] = MinorAmount(minorUnits: share.minorUnits)
+            }
+        }
+        return result
+    }
+
     /// Allocates every row through the engine and returns per-person totals
     /// (in participant order) plus exact-conservation confirmation. Throws if
     /// any row is unassigned or weights reference unknown people.
     public func personTotals() throws -> [ParticipantIdentity: MinorAmount] {
+        if let fixed = receiptSplit { return try receiptSplitTotals(fixed) }
         var totals: [UUID: Int64] = [:]
         for participant in participants { totals[participant.id] = 0 }
 

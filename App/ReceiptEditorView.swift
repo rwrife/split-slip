@@ -54,6 +54,18 @@ struct ReceiptEditorView: View {
             // tabs, never inside the virtualized List, and away from the tab
             // bar so keyboard layout passes can't move tab items.
             reconciliationBar
+            HStack {
+                Button("Split equally", systemImage: "equal.circle.fill") { model.splitReceiptEqually() }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                    .disabled(model.draft.participants.isEmpty)
+                    .accessibilityIdentifier("editor.splitEqually")
+                if model.draft.receiptSplit != nil {
+                    Button("Assign by item") { model.useItemAssignments() }
+                        .accessibilityIdentifier("editor.assignByItem")
+                }
+            }
+            .padding(.horizontal).padding(.bottom, 8)
+            .frame(maxWidth: .infinity).background(SlipStyle.canvas)
             TabView(selection: Binding(
                 get: { model.selection.tab },
                 set: { model.selectTab($0) })) {
@@ -98,9 +110,9 @@ struct ReceiptEditorView: View {
             }
             Button("Keep", role: .cancel) { pendingRemoval = nil }
         } message: { victim in
-            Text(victim.rows.isEmpty
-                 ? "This person is not on any allocated row."
-                 : "Their rows (“\(victim.rows.joined(separator: ", "))”) will need new recipients — nothing is reassigned silently.")
+            Text(model.draft.receiptSplit != nil
+                 ? "Their fixed amount will be removed and the remainder recalculated for the remaining people."
+                 : (victim.rows.isEmpty ? "This person is not on any allocated row." : "Their rows (“\(victim.rows.joined(separator: ", "))”) will need new recipients — nothing is reassigned silently."))
         }
         .alert("Cancel this correction?", isPresented: $showCancelCorrectionAlert) {
             Button("Cancel correction", role: .destructive) {
@@ -289,6 +301,7 @@ struct ReceiptEditorView: View {
     private var peopleTab: some View {
         List {
             participantsSection
+            personAmountsSection
             reviewSection
         }
         .accessibilityElement(children: .contain)
@@ -296,6 +309,32 @@ struct ReceiptEditorView: View {
         .scrollContentBackground(.hidden)
         .background(SlipStyle.canvas)
         .buttonStyle(.borderless)
+    }
+
+    private var personAmountsSection: some View {
+        Section {
+            ForEach(model.draft.participants, id: \.id) { person in
+                VStack(alignment: .leading, spacing: 6) {
+                    let total = model.personReviews().first { $0.id == person.id }?.total
+                    LabeledContent(person.displayName) {
+                        Text(total?.description ?? "—").monospacedDigit()
+                    }
+                    TextField("Automatic share", text: Binding(
+                        get: { model.personAmountInput[person.id] ?? "" },
+                        set: { model.setPersonAmount(person.id, $0) }))
+                        .keyboardType(.decimalPad)
+                        .accessibilityLabel("Amount for \(person.displayName)")
+                        .accessibilityIdentifier("editor.person.\(person.displayName).amount")
+                        .focused($focusedField, equals: "personAmount:\(person.id)")
+                    Text(model.draft.receiptSplit == nil ? "Currently assigned by item · enter an amount to split the whole receipt" : (model.draft.receiptSplit?[person.id] == nil ? "Automatic · shares the remainder" : "Fixed amount · clear to make automatic"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let message = model.fieldMessages["personAmount:\(person.id)"] {
+                        fieldError(message, key: "personAmount:\(person.id)")
+                    }
+                }
+            }
+        } header: { Text("Split the receipt") }
+        footer: { Text("Enter an amount for anyone paying a fixed share. The rest is split equally among the others and updates when receipt items change. Extra cents go in people order.") }
     }
 
     private var participantsSection: some View {
@@ -403,8 +442,8 @@ struct ReceiptEditorView: View {
             if let message = model.fieldMessages["line:\(line.id):amount"] {
                 fieldError(message, key: "line:\(line.id):amount")
             }
-            allocationEditor(rowID: line.id, isAdjustment: false, index: index,
-                             allocation: model.draft.lineAllocations[line.id] ?? RowAllocation(shares: []))
+            if model.draft.receiptSplit == nil { allocationEditor(rowID: line.id, isAdjustment: false, index: index,
+                             allocation: model.draft.lineAllocations[line.id] ?? RowAllocation(shares: [])) }
             if model.draft.rowsNeedingReview.contains(line.id) {
                 Label("Needs review after a participant was removed", systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -461,8 +500,8 @@ struct ReceiptEditorView: View {
             if let message = model.fieldMessages["adjustment:\(adjustment.id):amount"] {
                 fieldError(message, key: "adjustment:\(adjustment.id):amount")
             }
-            allocationEditor(rowID: adjustment.id, isAdjustment: true, index: index,
-                             allocation: model.draft.adjustmentAllocations[adjustment.id] ?? RowAllocation(shares: []))
+            if model.draft.receiptSplit == nil { allocationEditor(rowID: adjustment.id, isAdjustment: true, index: index,
+                             allocation: model.draft.adjustmentAllocations[adjustment.id] ?? RowAllocation(shares: [])) }
         }
         .accessibilityElement(children: .contain)
     }
@@ -476,27 +515,32 @@ struct ReceiptEditorView: View {
                     .foregroundStyle(.orange)
                     .accessibilityIdentifier("editor.\(prefix).\(index).unresolved")
             }
-            Button("Split equally") { model.assignEqually(rowID: rowID, isAdjustment: isAdjustment) }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule)
-                .accessibilityIdentifier("editor.\(prefix).\(index).splitEqually")
             ForEach(model.draft.participants, id: \.id) { participant in
                 let included = allocation.shares.first(where: { $0.participantID == participant.id })
-                HStack {
+                HStack(spacing: 16) {
+                    Text(participant.displayName).frame(maxWidth: .infinity, alignment: .leading)
+                    TextField("Weight", text: Binding(
+                        get: { included.map { String($0.weight) } ?? "" },
+                        set: { model.setWeight(participantID: participant.id, onRow: rowID, isAdjustment: isAdjustment, raw: $0) }))
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 56, height: 44)
+                        .background(SlipStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
+                        .opacity(included == nil ? 0 : 1)
+                        .disabled(included == nil)
+                        .accessibilityHidden(included == nil)
+                        .accessibilityLabel("Share weight for \(participant.displayName)")
+                        .accessibilityIdentifier("editor.\(prefix).\(index).weight.\(participant.displayName)")
+                        .focused($focusedField, equals: "weight:\(prefix):\(index):\(participant.displayName)")
+                        .onSubmit { focusedField = nil }
                     Toggle(participant.displayName, isOn: Binding(
                         get: { included != nil },
                         set: { _ in model.toggleParticipant(participant.id, onRow: rowID, isAdjustment: isAdjustment) }))
+                        .labelsHidden().fixedSize()
                         .accessibilityIdentifier("editor.\(prefix).\(index).person.\(participant.displayName)")
-                    if let included {
-                        TextField("Weight", text: Binding(
-                            get: { String(included.weight) },
-                            set: { model.setWeight(participantID: participant.id, onRow: rowID, isAdjustment: isAdjustment, raw: $0) }))
-                            .keyboardType(.numberPad)
-                            .frame(width: 52)
-                            .accessibilityIdentifier("editor.\(prefix).\(index).weight.\(participant.displayName)")
-                .focused($focusedField, equals: "weight:\(prefix):\(index):\(participant.displayName)")
-                .onSubmit { focusedField = nil }
-                    }
                 }
+                .padding(.vertical, 10)
+
             }
         }
     }

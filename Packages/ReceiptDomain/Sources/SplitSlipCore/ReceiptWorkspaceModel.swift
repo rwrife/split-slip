@@ -49,6 +49,7 @@ public final class ReceiptWorkspaceModel {
 
     // Raw user text (kept separate so invalid input never corrupts stored amounts).
     public var expectedTotalInput: String = ""
+    public var personAmountInput: [UUID: String] = [:]
     public var participantNameInput: String = ""
     public var lineLabelInput: [UUID: String] = [:]
     public var lineAmountInput: [UUID: String] = [:]
@@ -74,6 +75,7 @@ public final class ReceiptWorkspaceModel {
         self.continuity = continuity
         self.selection = continuity?.loadSelection(receiptID: draft.id) ?? WorkspaceSelection()
         self.referenceImageURL = try? images?.referenceImageURL(receiptID: draft.id)
+        self.personAmountInput = draft.receiptSplit?.mapValues(\.description) ?? [:]
         self.expectedTotalInput = draft.expectedTotal == .zero ? "" : draft.expectedTotal.description
         for line in draft.lines {
             lineLabelInput[line.id] = line.label
@@ -248,6 +250,9 @@ public final class ReceiptWorkspaceModel {
 
     public func removeParticipant(id: UUID) {
         draft.removeParticipant(id: id)
+        personAmountInput[id] = nil
+        setFieldMessage("personAmount:\(id)", nil)
+        if draft.receiptSplit != nil { draft.rowsNeedingReview = [] }
         persist()
     }
 
@@ -414,6 +419,40 @@ public final class ReceiptWorkspaceModel {
         persist()
     }
 
+    /// A single receipt-wide action. Future item edits and newly added people
+    /// continue to participate in the automatic remainder.
+    public func splitReceiptEqually() {
+        draft.receiptSplit = [:]
+        personAmountInput = [:]
+        fieldMessages = fieldMessages.filter { !$0.key.hasPrefix("personAmount:") }
+        draft.rowsNeedingReview = []
+        persist()
+    }
+
+    public func useItemAssignments() {
+        draft.receiptSplit = nil
+        personAmountInput = [:]
+        fieldMessages = fieldMessages.filter { !$0.key.hasPrefix("personAmount:") }
+        persist()
+    }
+
+    public func setPersonAmount(_ id: UUID, _ raw: String) {
+        guard draft.participants.contains(where: { $0.id == id }) else { return }
+        personAmountInput[id] = raw
+        let key = "personAmount:\(id)"
+        do {
+            let amount = raw.isEmpty ? nil : try MinorAmount(parsing: raw, currency: draft.currency)
+            guard amount?.isNegative != true else { throw LibraryError.invalid("Person amounts cannot be negative.") }
+            if draft.receiptSplit == nil { draft.receiptSplit = [:] }
+            draft.rowsNeedingReview = []
+            draft.receiptSplit?[id] = amount
+            setFieldMessage(key, nil)
+            persist()
+        } catch {
+            setFieldMessage(key, "Enter a valid nonnegative amount, or clear it for an automatic share.")
+        }
+    }
+
     // MARK: - Reconciliation views
 
     public func computedTotal() -> MinorAmount? {
@@ -447,6 +486,12 @@ public final class ReceiptWorkspaceModel {
     /// Per-person review: totals once every row resolves, plus a note beside
     /// each extra rounding cent and the labels of rows still unresolved.
     public func personReviews() -> [PersonReview] {
+        if draft.receiptSplit != nil {
+            let totals = try? draft.personTotals()
+            return draft.participants.map { person in
+                PersonReview(participant: person, total: totals?[person], extraCentNotes: [], pendingRowLabels: [])
+            }
+        }
         let byID = Dictionary(uniqueKeysWithValues: draft.participants.map { ($0.id, $0) })
         var totals: [UUID: MinorAmount] = [:]
         var extraNotes: [UUID: [String]] = [:]
@@ -499,7 +544,7 @@ public final class ReceiptWorkspaceModel {
 
     /// Non-empty when finalization must stay blocked; each entry is visible copy.
     public func finalizationBlockers() -> [String] {
-        var blockers: [String] = []
+        var blockers = fieldMessages.filter { $0.key.hasPrefix("personAmount:") }.map(\.value)
         do {
             _ = try draft.validated()
         } catch let error as ReceiptValidationError {
@@ -531,7 +576,7 @@ public final class ReceiptWorkspaceModel {
             } catch let error as ReceiptValidationError {
                 blockers.append(DomainMessages.receiptValidation(error))
             } catch {
-                blockers.append("The receipt cannot be reconciled yet.")
+                blockers.append(error.localizedDescription)
             }
         }
         return blockers

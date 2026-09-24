@@ -112,6 +112,10 @@ struct SplitSlipRootView: View {
                                 .accessibilityIdentifier("home.draft.\(index)")
                                 .contextMenu { if transfer != nil { Button("Delete receipt", role: .destructive) { deleteID = draft.id } } }
                                 .swipeActions { if transfer != nil { Button("Delete", role: .destructive) { deleteID = draft.id } } }
+                                if transfer != nil {
+                                    Button("Delete receipt", role: .destructive) { deleteID = draft.id }
+                                        .accessibilityIdentifier("home.draft.\(index).delete")
+                                }
                             }
                         }
                     }
@@ -130,6 +134,10 @@ struct SplitSlipRootView: View {
                                 .accessibilityIdentifier("home.snapshot.\(index)")
                                 .contextMenu { if transfer != nil { Button("Delete receipt", role: .destructive) { deleteID = snapshot.id } } }
                                 .swipeActions { if transfer != nil { Button("Delete", role: .destructive) { deleteID = snapshot.id } } }
+                                if transfer != nil {
+                                    Button("Delete receipt", role: .destructive) { deleteID = snapshot.id }
+                                        .accessibilityIdentifier("home.snapshot.\(index).delete")
+                                }
                             }
                         }
                     }
@@ -268,6 +276,7 @@ struct SnapshotDetailView: View {
     let onDuplicate: (UUID) -> Void
     @State private var showShare = false
     @State private var duplicateError: String?
+    @State private var expandedPeople: Set<UUID> = []
 
     /// `referenceImageURL` is `throws` and the store is optional, so flatten
     /// both layers here; a failing store just means "no reference to show".
@@ -297,12 +306,45 @@ struct SnapshotDetailView: View {
             }.listRowBackground(SlipStyle.accent.opacity(0.09))
             Section {
                 ForEach(Array(snapshot.personShares.enumerated()), id: \.element.participant.id) { index, share in
-                    HStack(spacing: 12) {
-                        PersonBadge(name: share.participant.displayName, index: index)
-                        LabeledContent(share.participant.displayName, value: "\(MinorAmount(minorUnits: share.totalMinorUnits)) \(snapshot.currency.rawValue)")
-                            .font(.headline).monospacedDigit()
-                    }.padding(.vertical, 6)
-                        .accessibilityIdentifier("snapshot.total.\(index)")
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { expandedPeople.contains(share.participant.id) },
+                        set: { if $0 { expandedPeople.insert(share.participant.id) } else { expandedPeople.remove(share.participant.id) } })) {
+                        if let split = snapshot.receiptSplit {
+                            Text(split[share.participant.id] == nil
+                                 ? "Equal share of the remainder after fixed amounts."
+                                 : "Fixed share of the whole receipt.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            Text("Shared receipt items · amounts below are the full item prices")
+                                .font(.caption).foregroundStyle(.secondary)
+                            ForEach(snapshot.lines) { line in
+                                LabeledContent(line.label, value: line.amount.description)
+                            }
+                            ForEach(snapshot.adjustments) { adjustment in
+                                LabeledContent(adjustment.label, value: adjustment.amount.description)
+                            }
+                        } else {
+                            ForEach(snapshot.lines) { line in
+                                if let amount = share.rowShares[line.id] {
+                                    LabeledContent(line.label, value: MinorAmount(minorUnits: amount).description)
+                                        .accessibilityIdentifier("snapshot.person.\(index).item.\(line.id)")
+                                }
+                            }
+                            ForEach(snapshot.adjustments) { adjustment in
+                                if let amount = share.rowShares[adjustment.id] {
+                                    LabeledContent(adjustment.label, value: MinorAmount(minorUnits: amount).description)
+                                }
+                            }
+                            if share.rowShares.isEmpty { Text("No items assigned to this person.").foregroundStyle(.secondary) }
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            PersonBadge(name: share.participant.displayName, index: index)
+                            LabeledContent(share.participant.displayName, value: "\(MinorAmount(minorUnits: share.totalMinorUnits)) \(snapshot.currency.rawValue)")
+                                .font(.headline).monospacedDigit()
+                        }.padding(.vertical, 10)
+                            .accessibilityIdentifier("snapshot.total.\(index)")
+                    }
+                    .accessibilityIdentifier("snapshot.person.\(index).expand")
                 }
                 LabeledContent("Receipt total", value: snapshot.expectedTotal.description)
                     .accessibilityIdentifier("snapshot.grandTotal")
@@ -600,9 +642,16 @@ private struct LibraryDataView: View {
                 } footer: {
                     Text("Removes all receipts, their photos, and local recovery copies. Exported copies and OS backups remain under your control.")
                 }
-                if let message { Section { Text(message).accessibilityIdentifier("data.message") } }
+
             }
             .scrollContentBackground(.hidden).background(SlipStyle.canvas)
+            .safeAreaInset(edge: .bottom) {
+                if let message {
+                    Text(message).font(.footnote).padding()
+                        .frame(maxWidth: .infinity).background(.regularMaterial)
+                        .accessibilityIdentifier("data.message")
+                }
+            }
             .navigationTitle("Your data").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear { refresh() }
