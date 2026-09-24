@@ -252,7 +252,8 @@ struct SplitSlipRootView: View {
     }
 
     private func createDraft() {
-        let draft = ReceiptDraft()
+        let totalItem = ReceiptLine(label: "Receipt total", amount: .zero)
+        let draft = ReceiptDraft(lines: [totalItem], totalOnlyLineID: totalItem.id)
         do {
             try store.saveDraft(draft)
             path.append(.draft(draft.id))

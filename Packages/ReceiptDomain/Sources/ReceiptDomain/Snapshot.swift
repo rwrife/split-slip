@@ -55,6 +55,7 @@ public struct FinalizedReceiptSnapshot: Identifiable, Hashable, Sendable, Codabl
     public let algorithmVersion: AlgorithmVersion
 
     public let receiptSplit: [UUID: MinorAmount]?
+    public let totalOnlyLineID: UUID?
     public let currency: SupportedCurrency
     public let expectedTotal: MinorAmount
     public let computedTotal: MinorAmount
@@ -83,10 +84,12 @@ public struct FinalizedReceiptSnapshot: Identifiable, Hashable, Sendable, Codabl
         adjustmentAllocations: [UUID: RowAllocation],
         personShares: [FinalizedPersonShare],
         correctsSnapshotID: UUID?,
-        receiptSplit: [UUID: MinorAmount]? = nil
+        receiptSplit: [UUID: MinorAmount]? = nil,
+        totalOnlyLineID: UUID? = nil
     ) {
         self.id = id
         self.receiptSplit = receiptSplit
+        self.totalOnlyLineID = totalOnlyLineID
         self.sourceDraftID = sourceDraftID
         self.finalizedAt = finalizedAt
         self.algorithmVersion = algorithmVersion
@@ -114,7 +117,7 @@ public struct FinalizedReceiptSnapshot: Identifiable, Hashable, Sendable, Codabl
             adjustments: adjustments,
             adjustmentAllocations: adjustmentAllocations,
             correctionOfSnapshotID: id,
-            receiptSplit: receiptSplit
+            receiptSplit: receiptSplit, totalOnlyLineID: totalOnlyLineID
         )
     }
 }
@@ -174,7 +177,7 @@ public extension ReceiptDraft {
                 adjustments: adjustments, adjustmentAllocations: adjustmentAllocations,
                 personShares: participants.map { FinalizedPersonShare(participant: $0,
                     totalMinorUnits: totals[$0]!.minorUnits, rowShares: [:], rowRemainders: [:]) },
-                correctsSnapshotID: correctionOfSnapshotID, receiptSplit: receiptSplit)
+                correctsSnapshotID: correctionOfSnapshotID, receiptSplit: receiptSplit, totalOnlyLineID: totalOnlyLineID)
         }
 
         // Row-level shares, accumulated per person with exact conservation.
@@ -251,7 +254,7 @@ public extension ReceiptDraft {
             adjustments: adjustments,
             adjustmentAllocations: adjustmentAllocations,
             personShares: personShares,
-            correctsSnapshotID: correctionOfSnapshotID
+            correctsSnapshotID: correctionOfSnapshotID, totalOnlyLineID: totalOnlyLineID
         )
     }
 }

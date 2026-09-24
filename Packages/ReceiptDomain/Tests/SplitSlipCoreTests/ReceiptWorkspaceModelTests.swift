@@ -370,3 +370,55 @@ struct ReceiptWideSplitTests {
         #expect(try restored.finalize().personShares.map(\.totalMinorUnits) == [1500, 1500])
     }
 }
+
+@Suite("Quick receipt total entry")
+struct QuickReceiptTests {
+    private func model() -> ReceiptWorkspaceModel {
+        let item = ReceiptLine(label: "Receipt total", amount: .zero)
+        return ReceiptWorkspaceModel(draft: ReceiptDraft(lines: [item], totalOnlyLineID: item.id), store: InMemoryReceiptStore())
+    }
+
+    @Test func totalFollowsInputAndSurvivesCorrection() throws {
+        let model = model()
+        model.setCurrency(.eur)
+        model.setExpectedTotal("12.01")
+        for name in ["Ana", "Bo"] { model.participantNameInput = name; model.addParticipant() }
+        model.splitReceiptEqually()
+        #expect(model.canFinalize)
+        #expect(model.draft.lines.first?.amount.minorUnits == 1201)
+        let saved = try model.draft.finalize()
+        #expect(saved.personShares.map(\.totalMinorUnits) == [601, 600])
+        let restored = try LibraryBackup.decode(files: LibraryBackup(library: ReceiptLibrary(snapshots: [saved])).files())
+        let correction = ReceiptWorkspaceModel(draft: restored.library.snapshots[0].correctionDraft(), store: InMemoryReceiptStore())
+        correction.setExpectedTotal("20.00")
+        #expect(correction.draft.lines.first?.amount.minorUnits == 2000)
+        #expect(correction.canFinalize)
+    }
+
+    @Test func addingItemsReplacesStarterWithoutDoubleCounting() throws {
+        let model = model()
+        model.setExpectedTotal("30.00")
+        model.addLine()
+        #expect(model.draft.lines.count == 1)
+        #expect(model.draft.totalOnlyLineID == nil)
+        let id = model.draft.lines[0].id
+        model.setLineLabel(id, "Dinner")
+        model.setLineAmount(id, "20.00")
+        model.setExpectedTotal("40.00")
+        #expect(model.draft.lines[0].amount.minorUnits == 2000)
+        #expect(model.difference()?.minorUnits == 2000)
+    }
+
+    @Test func manualAmountAndAdjustmentsEndAutomaticLink() throws {
+        let model = model()
+        model.setExpectedTotal("30.00")
+        model.setLineAmount(model.draft.lines[0].id, "25.00")
+        model.setExpectedTotal("35.00")
+        #expect(model.draft.lines[0].amount.minorUnits == 2500)
+        let other = self.model()
+        other.setExpectedTotal("30.00")
+        other.addAdjustment()
+        #expect(other.draft.totalOnlyLineID == nil)
+        try ReceiptLibrary(drafts: [other.draft]).validate()
+    }
+}

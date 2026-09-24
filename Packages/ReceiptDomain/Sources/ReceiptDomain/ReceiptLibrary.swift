@@ -29,7 +29,7 @@ public struct ReceiptLibrary: Codable, Sendable {
                 expectedTotal: snapshot.expectedTotal, participants: snapshot.participants,
                 lines: snapshot.lines, lineAllocations: snapshot.lineAllocations,
                 adjustments: snapshot.adjustments, adjustmentAllocations: snapshot.adjustmentAllocations,
-                receiptSplit: snapshot.receiptSplit)
+                receiptSplit: snapshot.receiptSplit, totalOnlyLineID: snapshot.totalOnlyLineID)
             try Self.validateDraft(draft)
             let recalculated = try draft.finalize(finalizedAt: snapshot.finalizedAt)
             guard recalculated.computedTotal == snapshot.computedTotal,
@@ -58,6 +58,9 @@ public struct ReceiptLibrary: Codable, Sendable {
         if let fixed = draft.receiptSplit {
             try require(Set(fixed.keys).isSubset(of: people), "A fixed amount refers to a missing person.")
             for value in fixed.values { try amount(value); try require(!value.isNegative, "Person amounts cannot be negative.") }
+        }
+        if let totalItem = draft.totalOnlyLineID {
+            try require(draft.lines.count == 1 && draft.lines.first?.id == totalItem && draft.adjustments.isEmpty && draft.lines.first?.amount == draft.expectedTotal, "The total-only item does not match the receipt total.")
         }
         try amount(draft.expectedTotal)
         try require(!draft.expectedTotal.isNegative, "Receipt totals must not be negative.")

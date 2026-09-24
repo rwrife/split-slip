@@ -40,4 +40,5 @@ Exact-head pinned CI after push; native share completion and additional Files-pr
 - Visible confirmed deletion is available for each draft and finalized receipt. Finalized people expand downward: item splits display exact personal item/adjustment amounts; whole-receipt splits explicitly label the shared items’ full prices separately from the person’s total.
 - Allocation rule 2 preserves receipt-wide fixed amounts in saved drafts, snapshots, corrections, and backups. Rule 1 remains readable. Backup manifests and store record versions prevent older builds from silently discarding the new split method.
 - Small-screen data-operation feedback stays pinned onscreen. Files test navigation handles both filename field variants and the system’s remembered export folder.
-- Local domain/core verification: 96 Swift tests passed. Native and pinned CI verification of the final update is tracked in PR #13.
+- New receipts include a linked “Receipt total” starter item. Entering the total, adding people, and tapping “Split equally” is sufficient to finalize. Adding individual items replaces the starter; editing its amount or adding adjustments ends the automatic link. Corrections preserve the link.
+- Local domain/core verification: 99 Swift tests passed. Native and pinned CI verification of the final update is tracked in PR #13.

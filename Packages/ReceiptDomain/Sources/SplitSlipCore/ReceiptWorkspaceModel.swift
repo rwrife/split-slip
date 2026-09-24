@@ -189,7 +189,7 @@ public final class ReceiptWorkspaceModel {
     // MARK: - Receipt header
 
     public func setCurrency(_ currency: SupportedCurrency) {
-        guard draft.lines.isEmpty && draft.adjustments.isEmpty else {
+        guard (draft.lines.isEmpty || draft.totalOnlyLineID != nil) && draft.adjustments.isEmpty else {
             setFieldMessage("currency", "Currency is fixed once the receipt has rows.")
             return
         }
@@ -202,12 +202,14 @@ public final class ReceiptWorkspaceModel {
         expectedTotalInput = raw
         guard !raw.isEmpty else {
             draft.expectedTotal = .zero
+            syncTotalOnlyItem()
             setFieldMessage("expectedTotal", nil)
             persist()
             return
         }
         do {
             draft.expectedTotal = try MinorAmount(parsing: raw, currency: draft.currency)
+            syncTotalOnlyItem()
             setFieldMessage("expectedTotal", nil)
             persist()
         } catch let error as MoneyParseError {
@@ -215,6 +217,13 @@ public final class ReceiptWorkspaceModel {
         } catch {
             setFieldMessage("expectedTotal", "Could not read that amount.")
         }
+    }
+
+    private func syncTotalOnlyItem() {
+        guard let id = draft.totalOnlyLineID,
+              let index = draft.lines.firstIndex(where: { $0.id == id }) else { return }
+        draft.lines[index].amount = draft.expectedTotal
+        lineAmountInput[id] = draft.expectedTotal.description
     }
 
     // MARK: - Participants
@@ -259,6 +268,14 @@ public final class ReceiptWorkspaceModel {
     // MARK: - Lines
 
     public func addLine() {
+        if let id = draft.totalOnlyLineID {
+            draft.lines.removeAll { $0.id == id }
+            draft.lineAllocations[id] = nil
+            draft.rowsNeedingReview.remove(id)
+            lineAmountInput[id] = nil
+            lineLabelInput[id] = nil
+            draft.totalOnlyLineID = nil
+        }
         guard draft.lines.count < ReceiptLimits.maximumLinesPerReceipt else {
             setFieldMessage("addLine", DomainMessages.receiptValidation(.tooManyLines(count: draft.lines.count + 1)))
             return
@@ -280,6 +297,7 @@ public final class ReceiptWorkspaceModel {
         lineAmountInput[id] = raw
         guard !raw.isEmpty else {
             if let index = draft.lines.firstIndex(where: { $0.id == id }) {
+                if draft.totalOnlyLineID == id { draft.totalOnlyLineID = nil }
                 draft.lines[index].amount = .zero
                 setFieldMessage("line:\(id):amount", nil)
                 persist()
@@ -293,6 +311,7 @@ public final class ReceiptWorkspaceModel {
                 return
             }
             if let index = draft.lines.firstIndex(where: { $0.id == id }) {
+                if draft.totalOnlyLineID == id { draft.totalOnlyLineID = nil }
                 draft.lines[index].amount = parsed
                 setFieldMessage("line:\(id):amount", nil)
                 persist()
@@ -305,6 +324,7 @@ public final class ReceiptWorkspaceModel {
     }
 
     public func removeLine(_ id: UUID) {
+        if draft.totalOnlyLineID == id { draft.totalOnlyLineID = nil }
         draft.lines.removeAll { $0.id == id }
         draft.lineAllocations[id] = nil
         draft.rowsNeedingReview.remove(id)
@@ -320,6 +340,7 @@ public final class ReceiptWorkspaceModel {
             setFieldMessage("addAdjustment", DomainMessages.receiptValidation(.tooManyAdjustments(count: draft.adjustments.count + 1)))
             return
         }
+        draft.totalOnlyLineID = nil
         setFieldMessage("addAdjustment", nil)
         draft.adjustments.append(ReceiptAdjustment(label: "", amount: .zero))
         persist()

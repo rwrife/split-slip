@@ -345,6 +345,28 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["home.snapshot.0"].exists)
     }
 
+    func testQuickSplitWithOnlyReceiptTotalAndPeople() throws {
+        freshLaunch()
+        app.buttons["home.newReceipt"].tap()
+        tapAndType(app.textFields["editor.expectedTotal"], text: "12.01")
+        XCTAssertEqual(app.textFields["editor.line.0.label"].value as? String, "Receipt total")
+        XCTAssertEqual(app.textFields["editor.line.0.amount"].value as? String, "12.01")
+        openTab("People")
+        for name in ["Ana", "Bo"] {
+            tapAndType(app.textFields["editor.participantName"], text: name)
+            app.buttons["editor.addParticipant"].tap()
+        }
+        app.buttons["editor.splitEqually"].tap()
+        XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
+        app.buttons["editor.finalize"].tap()
+        let saved = app.buttons["home.snapshot.0"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 10)); saved.tap()
+        XCTAssertTrue(revealText("6.01"))
+        XCTAssertTrue(revealText("6.00"))
+        app.buttons["snapshot.person.0.expand"].tap()
+        XCTAssertTrue(revealText("Receipt total"))
+    }
+
     func testFinalizedPersonExpandsTheirAssignedItems() throws {
         app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "ABAAAAAA-0000-0000-0000-000000000001"]
         app.launch()

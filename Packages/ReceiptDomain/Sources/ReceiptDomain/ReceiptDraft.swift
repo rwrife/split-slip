@@ -73,6 +73,8 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     /// nil preserves item-by-item splitting; an empty map means everyone splits equally.
     public var receiptSplit: [UUID: MinorAmount]?
+    /// Optional starter item whose amount follows the printed total until item entry begins.
+    public var totalOnlyLineID: UUID?
     public var currency: SupportedCurrency
     /// The grand total printed on the receipt, entered by the user.
     public var expectedTotal: MinorAmount
@@ -100,10 +102,12 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
         adjustmentAllocations: [UUID: RowAllocation] = [:],
         correctionOfSnapshotID: UUID? = nil,
         rowsNeedingReview: Set<UUID> = [],
-        receiptSplit: [UUID: MinorAmount]? = nil
+        receiptSplit: [UUID: MinorAmount]? = nil,
+        totalOnlyLineID: UUID? = nil
     ) {
         self.id = id
         self.receiptSplit = receiptSplit
+        self.totalOnlyLineID = totalOnlyLineID
         self.currency = currency
         self.expectedTotal = expectedTotal
         self.participants = participants

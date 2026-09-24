@@ -399,7 +399,9 @@ struct ReceiptEditorView: View {
                 Label("Add an item", systemImage: "plus.circle.fill").frame(minHeight: 44)
             }.accessibilityIdentifier("editor.addLine")
         } header: { Text("What’s on the receipt?") }
-        footer: { Text("Enter each printed line total, then choose who shares it.") }
+        footer: { Text(model.draft.totalOnlyLineID != nil
+            ? "This item follows your receipt total. Add people and tap Split equally, or add individual items instead."
+            : "Enter each printed line total, then choose who shares it.") }
     }
 
     private func lineRow(_ line: ReceiptLine, index: Int) -> some View {
