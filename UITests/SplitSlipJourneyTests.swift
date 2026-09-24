@@ -147,6 +147,32 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// `editor.addLine`. Toolbar chrome is safe to tap directly.
     private func tapRevealed(_ element: XCUIElement) {
         XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
+        settledTap(element)
+    }
+
+    /// Tap only once the element is hittable AND its frame has stopped
+    /// moving. A virtualized List row can be recycled by still-settling
+    /// scroll between a successful hittable poll and the snapshot `tap()`
+    /// takes internally (run 107772230944: 'Failed to get matching
+    /// snapshot' ~1-2 s AFTER the reveal passed). Sampling hittable plus
+    /// two identical consecutive frames proves the list is quiescent
+    /// before the tap's snapshot is required.
+    private func settledTap(_ element: XCUIElement) {
+        let deadline = Date().addingTimeInterval(8)
+        var last = CGRect.zero
+        while Date() < deadline {
+            guard element.exists, (try? element.isHittable) == true else {
+                usleep(250_000); last = .zero; continue
+            }
+            let frame = element.frame
+            if frame == last, frame != .zero { element.tap(); return }
+            last = frame
+            usleep(350_000)
+        }
+        // Never saw two identical frames in time: only tap while hittable,
+        // so any failure still points at the real UI problem, not the gate.
+        XCTAssertTrue((try? element.isHittable) == true,
+                      "element \(element.identifier) not hittable before tap")
         element.tap()
     }
 
@@ -156,7 +182,7 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// wait for the keyboard to actually hide so tab-bar taps stay hittable.
     private func tapAndType(_ element: XCUIElement, text: String) {
         XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
-        element.tap()
+        settledTap(element)
         element.typeText(text)
         commitKeyboard(element)
     }
