@@ -525,20 +525,37 @@ private struct SummaryDocument: FileDocument {
     }
 }
 
-private struct BackupDocument: FileDocument {
+/// Each native folder export gets a unique temporary name. Completion,
+/// cancellation, and the next launch clean up the app-owned staging directory.
+struct BackupExport: FileDocument {
     static var readableContentTypes: [UTType] { [.folder] }
+    private static let prefix = "SplitSlipExport-"
+    let filename: String
     let files: [String: Data]
-    init(backup: LibraryBackup) throws { files = try backup.files() }
+    init(backup: LibraryBackup) throws {
+        filename = Self.prefix + UUID().uuidString
+        files = try backup.files()
+    }
     init(configuration: ReadConfiguration) throws { throw CocoaError(.fileReadUnsupportedScheme) }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(directoryWithFileWrappers: files.mapValues { FileWrapper(regularFileWithContents: $0) })
+    }
+    func cleanup() {
+        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent(filename))
+    }
+    static func cleanupAbandoned() throws {
+        for folder in try FileManager.default.contentsOfDirectory(at: FileManager.default.temporaryDirectory, includingPropertiesForKeys: nil) {
+            let name = folder.lastPathComponent
+            guard name.hasPrefix(prefix), UUID(uuidString: String(name.dropFirst(prefix.count))) != nil else { continue }
+            try FileManager.default.removeItem(at: folder)
+        }
     }
 }
 
 private struct LibraryDataView: View {
     let transfer: LibraryTransfer
     @Environment(\.dismiss) private var dismiss
-    @State private var document: BackupDocument?
+    @State private var document: BackupExport?
     @State private var exporting = false
     @State private var importing = false
     @State private var staged: LibraryBackup?
@@ -557,7 +574,7 @@ private struct LibraryDataView: View {
                         .foregroundStyle(.secondary)
                 }.listRowBackground(SlipStyle.accent.opacity(0.09))
                 Section {
-                    Button { perform { document = try BackupDocument(backup: transfer.backup()); exporting = true } } label: {
+                    Button { perform { document = try BackupExport(backup: transfer.backup()); exporting = true } } label: {
                         Label("Save a private backup", systemImage: "square.and.arrow.up")
                     }.accessibilityIdentifier("data.backup")
                     Button { importing = true } label: {
@@ -570,7 +587,7 @@ private struct LibraryDataView: View {
                     Section {
                         ForEach(previous, id: \.self) { folder in
                             Button("Save recovery backup \(previous.firstIndex(of: folder)! + 1)") {
-                                perform { document = try BackupDocument(backup: LibraryBackup.read(from: folder)); exporting = true }
+                                perform { document = try BackupExport(backup: LibraryBackup.read(from: folder)); exporting = true }
                             }
                         }
                     } header: { Text("Before your last restores") } footer: {
@@ -589,13 +606,14 @@ private struct LibraryDataView: View {
             .navigationTitle("Your data").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear { refresh() }
-            .fileExporter(isPresented: $exporting, document: document, contentType: .folder, defaultFilename: "Split Slip Backup") { result in
+            .fileExporter(isPresented: $exporting, document: document, contentTypes: [.folder], defaultFilename: document?.filename, onCompletion: { result in
+                defer { document?.cleanup(); document = nil }
                 switch result {
                 case .success: message = "Backup saved. Keep this folder and all its contents together."
                 case .failure(let error):
                     if (error as NSError).code != NSUserCancelledError { message = error.localizedDescription }
                 }
-            }
+            }, onCancellation: { document?.cleanup(); document = nil })
             .fileImporter(isPresented: $importing, allowedContentTypes: [.folder]) { result in
                 perform {
                     let url = try result.get()
@@ -618,7 +636,11 @@ private struct LibraryDataView: View {
             }
             .alert("Delete everything on this device?", isPresented: $confirmingDelete) {
                 Button("Delete all local data", role: .destructive) {
-                    perform { try transfer.deleteAll(); message = "Local receipts, photos, and recovery copies deleted." }
+                    perform {
+                        try transfer.deleteAll()
+                        try BackupExport.cleanupAbandoned()
+                        message = "Local receipts, photos, and recovery copies deleted."
+                    }
                     refresh()
                 }
                 Button("Keep my data", role: .cancel) {}

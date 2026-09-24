@@ -312,6 +312,49 @@ final class SplitSlipJourneyTests: XCTestCase {
         editor.name = "Editor — dark accessibility text"; editor.lifetime = .keepAlways; add(editor)
     }
 
+    func testFilesBackupDeleteAndRestore() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "EEAAAAAA-0000-0000-0000-000000000001"]
+        app.launch()
+        containerExists("home.root")
+        app.buttons["home.data"].tap()
+        app.buttons["data.backup"].tap()
+        let name = "SplitSlipTest-" + UUID().uuidString.prefix(8)
+        let filename = app.textFields["DOCPicker.filenameTextField"]
+        XCTAssertTrue(filename.waitForExistence(timeout: 10), app.debugDescription)
+        filename.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        filename.typeText(String(name))
+        let save = app.buttons["Save"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 5)); save.tap()
+        let message = app.staticTexts["data.message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(message.label.contains("Backup saved"), message.label)
+        let delete = app.buttons["data.deleteAll"]
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Delete all local data"].tap()
+        XCTAssertTrue(message.label.contains("deleted"), message.label)
+        let restore = app.buttons["data.restore"]
+        XCTAssertTrue(reveal(restore)); restore.tap()
+        let browse = app.tabBars.buttons["Browse"].firstMatch
+        if browse.waitForExistence(timeout: 3) { browse.tap() }
+        let local = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "On My iPhone")).firstMatch
+        if local.waitForExistence(timeout: 3) { local.tap() }
+        let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", String(name))).firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10), app.debugDescription)
+        folder.tap()
+        let open = app.buttons["Open"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5), app.debugDescription); open.tap()
+        let replace = app.alerts.buttons["Replace library"]
+        XCTAssertTrue(replace.waitForExistence(timeout: 10), app.debugDescription); replace.tap()
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.label.contains("Backup restored"), message.label)
+        app.buttons["Done"].tap()
+        app.terminate(); app.launchArguments = ["-ui-testing"]; app.launch()
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 10))
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root")
+        XCTAssertTrue(reveal(app.buttons["editor.reference.remove"]), "Restored receipt must retain its photo")
+    }
+
     func testDataDeletionRequiresConfirmationAndPersists() throws {
         app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "DDAAAAAA-0000-0000-0000-000000000001"]
         app.launch()

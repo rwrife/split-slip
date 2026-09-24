@@ -13,6 +13,7 @@ struct SplitSlipApp: App {
         // A broken store must show an explicit error — never a blank app that
         // silently wipes data (PLAN: empty/malformed stores show errors).
         do {
+            try BackupExport.cleanupAbandoned()
             try Self.prepareStoreDirectory()
             let environment = try AppEnvironment(storeURL: Self.storeURL,
                                                  imagesRoot: Self.imagesDirectory,
