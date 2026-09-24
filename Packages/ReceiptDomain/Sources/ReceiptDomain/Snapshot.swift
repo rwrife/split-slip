@@ -13,8 +13,8 @@ public struct AlgorithmVersion: Hashable, Sendable, Codable, CustomStringConvert
 
     public static let current = AlgorithmVersion(schema: 1, allocationRule: 1)
 
-    /// Only v1 schema with allocation rule 1 exists so far; anything else is
-    /// an explicit, testable rejection.
+    /// Rule 1 allocates items; rule 2 splits the receipt after fixed amounts.
+    /// Older snapshots remain readable; unknown rules are refused.
     public static func validateRestorable(_ version: AlgorithmVersion) throws {
         guard version.schema == 1 else { throw SnapshotVersionError.unsupportedSchema(version.schema) }
         guard (1...2).contains(version.allocationRule) else { throw SnapshotVersionError.unsupportedAllocationRule(version.allocationRule) }

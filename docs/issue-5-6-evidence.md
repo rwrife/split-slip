@@ -31,3 +31,13 @@ The retained results are local `.xcresult` bundles under `/private/tmp/split-sli
 ## Still open
 
 Exact-head pinned CI after push; native share completion and additional Files-provider/device coverage (local simulator Files save/delete/restore now passes); actual iPhone VoiceOver/PhotosPicker/Files/offline/termination evaluation; protected release environment; confirmed App Store record/agreements/signing; a signed archive/IPA; and Apple processing evidence. No TestFlight or App Store availability is claimed.
+
+
+## September 24 usability follow-up
+
+- The equal split action now sits above the editor tabs and applies to the whole receipt. People can have fixed dollar amounts; the remaining cents divide equally among automatic people in stable order. Item/adjustment edits immediately recalculate the remainder. Clearing an amount returns that person to automatic; overcommitted or invalid amounts block finalization.
+- Item assignments remain available through “Assign by item.” Counters reserve space to the left of stationary switches, with 44-point controls and extra vertical padding.
+- Visible confirmed deletion is available for each draft and finalized receipt. Finalized people expand downward: item splits display exact personal item/adjustment amounts; whole-receipt splits explicitly label the shared items’ full prices separately from the person’s total.
+- Allocation rule 2 preserves receipt-wide fixed amounts in saved drafts, snapshots, corrections, and backups. Rule 1 remains readable. Backup manifests and store record versions prevent older builds from silently discarding the new split method.
+- Small-screen data-operation feedback stays pinned onscreen. Files test navigation handles both filename field variants and the system’s remembered export folder.
+- Local domain/core verification: 96 Swift tests passed. Native and pinned CI verification of the final update is tracked in PR #13.

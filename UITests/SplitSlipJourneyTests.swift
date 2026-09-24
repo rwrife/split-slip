@@ -316,7 +316,10 @@ final class SplitSlipJourneyTests: XCTestCase {
         freshLaunch()
         buildMismatchedReceipt()
         openTab("Receipt")
-        tapAndType(app.textFields["editor.expectedTotal"], text: "30.00")
+        let printedTotal = app.textFields["editor.expectedTotal"]
+        XCTAssertTrue(reveal(printedTotal))
+        printedTotal.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        printedTotal.typeText("30.00"); commitKeyboard(printedTotal)
         openTab("People")
         let amount = app.textFields["editor.person.Ana.amount"]
         XCTAssertTrue(reveal(amount)); tapAndType(amount, text: "10.00")
@@ -348,6 +351,14 @@ final class SplitSlipJourneyTests: XCTestCase {
         containerExists("home.root")
         app.buttons["home.data"].tap()
         app.buttons["data.backup"].tap()
+        // Files remembers its last folder across runs. Always choose the same
+        // local root for export and import, including on a reused simulator.
+        let localExport = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "On My iPhone")).firstMatch
+        for _ in 0..<10 {
+            if localExport.waitForExistence(timeout: 1) { localExport.tap(); break }
+            let back = app.buttons["BackButton"].firstMatch
+            if back.waitForExistence(timeout: 1) { back.tap() } else { break }
+        }
         let name = "SplitSlipTest-" + UUID().uuidString.prefix(8)
         let identifiedFilename = app.textFields["DOCPicker.filenameTextField"]
         let filename = identifiedFilename.waitForExistence(timeout: 3) ? identifiedFilename : app.textFields.firstMatch
@@ -429,7 +440,10 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.line.0.amount"], text: "5.00")
         let selector = app.switches["editor.line.0.person.Ana"]
         XCTAssertTrue(reveal(selector))
+        let originalX = selector.frame.midX
         selector.tap()
+        XCTAssertEqual(selector.frame.midX, originalX, accuracy: 1)
+        XCTAssertLessThan(app.textFields["editor.line.0.weight.Ana"].frame.maxX, selector.frame.minX)
 
         openTab("People")
         let remove = app.buttons["editor.removeParticipant.Ana"]

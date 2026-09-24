@@ -31,7 +31,8 @@ public struct LibraryBackup: Sendable {
         encoder.outputFormatting = [.sortedKeys]
         let receipts = try encoder.encode(library)
         guard receipts.count <= Self.maximumJSONBytes else { throw LibraryError.invalid("Receipt data is too large.") }
-        let manifest = Manifest(formatVersion: 1, algorithm: .current, imageReceiptIDs: images.keys.sorted { $0.uuidString < $1.uuidString })
+        let hasReceiptSplit = library.drafts.contains { $0.receiptSplit != nil } || library.snapshots.contains { $0.receiptSplit != nil }
+        let manifest = Manifest(formatVersion: 1, algorithm: AlgorithmVersion(schema: 1, allocationRule: hasReceiptSplit ? 2 : 1), imageReceiptIDs: images.keys.sorted { $0.uuidString < $1.uuidString })
         var result = ["manifest.json": try encoder.encode(manifest), "receipts.json": receipts]
         for (id, data) in images { result[Self.imageName(id)] = data }
         guard result.values.reduce(0, { $0 + $1.count }) <= Self.maximumBytes else { throw LibraryError.invalid("Backup exceeds 100 MB.") }

@@ -87,14 +87,14 @@ public final class SwiftDataReceiptStore: ReceiptLibraryStore, @unchecked Sendab
         let descriptor = FetchDescriptor<DraftRecord>(predicate: #Predicate { $0.draftID == id })
         if let existing = try context.fetch(descriptor).first {
             existing.schemaVersion = AlgorithmVersion.current.schema
-            existing.allocationRuleVersion = AlgorithmVersion.current.allocationRule
+            existing.allocationRuleVersion = draft.receiptSplit == nil ? 1 : 2
             existing.updatedAt = Date()
             existing.payload = data
         } else {
             context.insert(DraftRecord(
                 draftID: id,
                 schemaVersion: AlgorithmVersion.current.schema,
-                allocationRuleVersion: AlgorithmVersion.current.allocationRule,
+                allocationRuleVersion: draft.receiptSplit == nil ? 1 : 2,
                 updatedAt: Date(),
                 payload: data))
         }
@@ -230,7 +230,7 @@ public final class SwiftDataReceiptStore: ReceiptLibraryStore, @unchecked Sendab
             for row in try context.fetch(FetchDescriptor<SnapshotRecord>()) { context.delete(row) }
             for (draft, data) in drafts {
                 context.insert(DraftRecord(draftID: draft.id, schemaVersion: AlgorithmVersion.current.schema,
-                    allocationRuleVersion: AlgorithmVersion.current.allocationRule, updatedAt: Date(), payload: data))
+                    allocationRuleVersion: draft.receiptSplit == nil ? 1 : 2, updatedAt: Date(), payload: data))
             }
             for (snapshot, data) in snapshots {
                 context.insert(SnapshotRecord(snapshotID: snapshot.id, sourceDraftID: snapshot.sourceDraftID,
