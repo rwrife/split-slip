@@ -98,7 +98,11 @@ struct SplitSlipApp: App {
             case let .success(environment):
                 SplitSlipRootView(store: environment.store,
                                   images: environment.images,
-                                  continuity: environment.continuity)
+                                  continuity: environment.continuity,
+                                  transfer: environment.transfer)
+                    #if targetEnvironment(simulator)
+                    .preferredColorScheme(CommandLine.arguments.contains("-ui-testing-dark") ? .dark : nil)
+                    #endif
             case let .failure(error):
                 StoreUnavailableView(error: error)
             }
@@ -108,10 +112,12 @@ struct SplitSlipApp: App {
 
 /// Bundle of the sandbox-backed stores the app injects into views. Keeping
 /// them behind one type means view code never constructs its own storage.
+@MainActor
 struct AppEnvironment {
     let store: AnyReceiptStore
     let images: any ReferenceImageStore
     let continuity: any ContinuityStore
+    let transfer: LibraryTransfer
 
     init(storeURL: URL, imagesRoot: URL, continuityURL: URL) throws {
         #if canImport(SwiftData)
@@ -121,5 +127,8 @@ struct AppEnvironment {
         #endif
         self.images = try LocalReferenceImageStore(rootDirectory: imagesRoot)
         self.continuity = FileContinuityStore(url: continuityURL)
+        self.transfer = LibraryTransfer(store: store, images: images, continuity: continuity,
+            recoveryRoot: storeURL.deletingLastPathComponent().appendingPathComponent("recovery", isDirectory: true))
+        try transfer.recoverIfNeeded()
     }
 }

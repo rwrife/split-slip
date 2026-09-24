@@ -33,6 +33,7 @@ public protocol ReferenceImageStore: Sendable {
     /// finalized snapshot is duplicated to a correction draft). Absent source
     /// is a no-op; an existing destination is replaced atomically.
     func copyReference(from sourceID: UUID, to destinationID: UUID) throws
+    func clearAllReferenceImages() throws
 }
 
 /// Filesystem-backed reference image store rooted inside the app sandbox.
@@ -76,14 +77,12 @@ public final class LocalReferenceImageStore: ReferenceImageStore, @unchecked Sen
             throw ReferenceImageError.tooLarge(byteCount: jpeg.count)
         }
         let url = try fileURL(receiptID: receiptID)
-        let temporary = url.appendingPathExtension("tmp")
         do {
-            try jpeg.write(to: temporary, options: [.atomic])
-            _ = try? fileManager.removeItem(at: url)
-            try fileManager.moveItem(at: temporary, to: url)
+            // Foundation performs the same-volume rename atomically; never delete
+            // the original before the replacement has successfully been written.
+            try jpeg.write(to: url, options: .atomic)
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
-            try? fileManager.removeItem(at: temporary)
             throw ReferenceImageError.storageFailed("write: \(error)")
         }
     }
@@ -91,6 +90,15 @@ public final class LocalReferenceImageStore: ReferenceImageStore, @unchecked Sen
     public func clearReferenceImage(receiptID: UUID) throws {
         let url = try fileURL(receiptID: receiptID)
         if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    public func clearAllReferenceImages() throws {
+        for url in try fileManager.contentsOfDirectory(at: rootDirectory, includingPropertiesForKeys: nil) {
+            let base = url.pathExtension == "tmp" ? url.deletingPathExtension() : url
+            guard base.pathExtension == ReferenceImageLimits.fileExtension,
+                  UUID(uuidString: base.deletingPathExtension().lastPathComponent) != nil else { continue }
             try fileManager.removeItem(at: url)
         }
     }

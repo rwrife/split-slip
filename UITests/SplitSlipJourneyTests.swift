@@ -168,7 +168,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.launchArguments = ["-ui-testing", "-reset-store"]
         app.launch()
         containerExists("home.root")
-        XCTAssertTrue(revealText("No receipts yet. Create one to get started."))
+        containerExists("home.empty")
     }
 
     /// Enter currency stays USD; add two people, one line, and reach a
@@ -233,7 +233,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         app.buttons["editor.finalize"].tap()
 
         // Back on home, the finalized receipt is listed.
-        XCTAssertTrue(app.staticTexts["Finalized"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
 
         // --- Relaunch WITHOUT reset: persistence proof ---
@@ -251,10 +251,22 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(revealText("15.00"))
         XCTAssertTrue(revealText("30.00"))
 
+        // Sharing always starts with a reviewed preview, never an automatic send.
+        let share = app.buttons["snapshot.share"]
+        XCTAssertTrue(reveal(share))
+        share.tap()
+        XCTAssertTrue(app.staticTexts["share.preview"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["share.preview"].label.contains("30.00 USD"))
+        app.segmentedControls["share.format"].buttons["CSV"].tap()
+        XCTAssertTrue(app.staticTexts["share.preview"].label.contains("Person total"))
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "Reviewed CSV preview"; preview.lifetime = .keepAlways; add(preview)
+        app.buttons["Done"].tap()
+
         // Duplicate-to-correct forks a new linked draft.
         app.buttons["snapshot.duplicate"].tap()
         containerExists("editor.root", timeout: 5)
-        XCTAssertTrue(app.navigationBars["Correction draft"].exists)
+        XCTAssertTrue(app.navigationBars["Make a correction"].exists)
 
         // Canceling the correction must keep the snapshot (no data loss).
         app.buttons["editor.cancelCorrection"].tap()
@@ -263,6 +275,64 @@ final class SplitSlipJourneyTests: XCTestCase {
         alert.buttons["Cancel correction"].tap()
         containerExists("home.root", timeout: 5)
         XCTAssertTrue(app.buttons["home.snapshot.0"].waitForExistence(timeout: 5))
+    }
+
+    private func cancelFilePicker() {
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.waitForExistence(timeout: 2) { cancel.tap(); return }
+        let browse = app.buttons["Browse"].firstMatch
+        if browse.exists { browse.tap() }
+        if cancel.waitForExistence(timeout: 2) { cancel.tap(); return }
+        let close = app.buttons["Close"].firstMatch
+        if close.exists { close.tap(); return }
+        // Some system Files sheets expose dismissal through the native sheet
+        // gesture. This is outside the app's own non-gesture controls.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+    }
+
+    func testLargeTextDarkLayoutAndCanceledFileOperations() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL", "-ui-testing-dark"]
+        app.launch()
+        containerExists("home.root")
+        let home = XCTAttachment(screenshot: app.screenshot())
+        home.name = "Home — dark accessibility text"; home.lifetime = .keepAlways; add(home)
+        app.buttons["home.data"].tap()
+        let backup = app.buttons["data.backup"]
+        XCTAssertTrue(reveal(backup)); backup.tap()
+        cancelFilePicker()
+        let restore = app.buttons["data.restore"]
+        XCTAssertTrue(reveal(restore)); restore.tap()
+        cancelFilePicker()
+        app.buttons["Done"].tap()
+        app.buttons["home.newReceiptToolbar"].tap()
+        containerExists("editor.root")
+        XCTAssertTrue(app.tabBars.buttons["People"].isHittable)
+        let editor = XCTAttachment(screenshot: app.screenshot())
+        editor.name = "Editor — dark accessibility text"; editor.lifetime = .keepAlways; add(editor)
+    }
+
+    func testDataDeletionRequiresConfirmationAndPersists() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "DDAAAAAA-0000-0000-0000-000000000001"]
+        app.launch()
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 10))
+        app.buttons["home.data"].tap()
+        let delete = app.buttons["data.deleteAll"]
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Keep my data"].tap()
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["home.draft.0"].waitForExistence(timeout: 5))
+        app.buttons["home.data"].tap()
+        XCTAssertTrue(reveal(delete)); delete.tap()
+        app.alerts.buttons["Delete all local data"].tap()
+        XCTAssertTrue(app.staticTexts["data.message"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["data.message"].label.contains("deleted"), app.staticTexts["data.message"].label)
+        app.buttons["Done"].tap()
+        app.terminate()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+        XCTAssertFalse(app.buttons["home.draft.0"].exists)
+        containerExists("home.empty")
     }
 
     func testValidationErrorsAreVisibleAndDestructiveRemovalConfirms() throws {

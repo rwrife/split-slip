@@ -3,6 +3,7 @@ import Testing
 import ReceiptDomain
 
 #if canImport(SwiftData)
+import SwiftData
 @testable import ReceiptStore
 
 /// Persistence acceptance for issue #2: draft edits persist, a reopened store
@@ -36,6 +37,43 @@ struct SwiftDataStoreTests {
                 .init(participantID: ann.id, weight: 1),
                 .init(participantID: bob.id, weight: 2),
             ])])
+    }
+
+    @Test("Corrupt persisted amounts surface a read error without deleting records")
+    func damagedStoreRead() throws {
+        let (store, url) = try temporaryStore()
+        defer { cleanup(url) }
+        var draft = try sampleDraft()
+        try store.saveDraft(draft)
+        let context = ModelContext(store.container)
+        let record = try #require(context.fetch(FetchDescriptor<DraftRecord>()).first)
+        draft.expectedTotal = MinorAmount(minorUnits: .min)
+        record.payload = try PropertyListEncoder().encode(draft)
+        try context.save()
+        #expect(throws: (any Error).self) { try store.loadAllDrafts() }
+        #expect(try context.fetchCount(FetchDescriptor<DraftRecord>()) == 1)
+    }
+
+    @Test("Library replacement is durable and validates before deleting")
+    func replaceLibrary() throws {
+        let (store, url) = try temporaryStore()
+        defer { cleanup(url) }
+        var draft = try sampleDraft()
+        try store.saveDraft(draft)
+        let snapshot = try draft.finalize()
+        // Reuse the same draft ID to exercise SwiftData's uniqueness constraint.
+        draft.participants[0].displayName = "Updated name"
+        try store.replaceLibrary(ReceiptLibrary(drafts: [draft], snapshots: [snapshot]))
+        let reopened = try SwiftDataReceiptStore(url: url)
+        #expect(try reopened.loadDraft(id: draft.id).participants[0].displayName == "Updated name")
+        #expect(try reopened.loadAllSnapshots() == [snapshot])
+        #expect(throws: (any Error).self) {
+            try store.replaceLibrary(ReceiptLibrary(drafts: [draft, draft]))
+        }
+        #expect(try store.loadAllSnapshots() == [snapshot])
+        try store.replaceLibrary(ReceiptLibrary())
+        #expect(try store.loadAllDrafts().isEmpty)
+        #expect(try store.loadAllSnapshots().isEmpty)
     }
 
     @Test("Draft save then reopen-in-new-store recovers the edit")

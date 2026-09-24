@@ -552,17 +552,28 @@ public final class ReceiptWorkspaceModel {
         }
         do {
             let snapshot = try draft.finalize(finalizedAt: finalizedAt)
-            try store.storeSnapshot(snapshot)
-            // The draft's lifecycle ends with its snapshot; keep no stale draft
-            // row so the home list shows one receipt, not a ghost draft.
-            try? store.deleteDraft(id: draft.id)
-            // Ownership transfers for issue #4 collaborators: the snapshot
-            // inherits the reference image and the workspace selection under
-            // its own id; the draft's keys are released.
+            // Prepare the owned photo first so a failed copy cannot silently
+            // finalize a receipt without its reference. Keep the draft intact.
             if let images, referenceImageURL != nil {
-                try? images.copyReference(from: draft.id, to: snapshot.id)
-                try? images.clearReferenceImage(receiptID: draft.id)
+                try images.copyReference(from: draft.id, to: snapshot.id)
             }
+            do {
+                if let libraryStore = store as? any ReceiptLibraryStore {
+                    var library = try libraryStore.readLibrary()
+                    library.drafts.removeAll { $0.id == draft.id }
+                    library.snapshots.append(snapshot)
+                    try libraryStore.replaceLibrary(library)
+                } else {
+                    // Compatibility for minimal injected stores; the app uses
+                    // the transactional ReceiptLibraryStore path above.
+                    try store.storeSnapshot(snapshot)
+                    try store.deleteDraft(id: draft.id)
+                }
+            } catch {
+                try? images?.clearReferenceImage(receiptID: snapshot.id)
+                throw error
+            }
+            try? images?.clearReferenceImage(receiptID: draft.id)
             if let continuity {
                 continuity.copySelection(from: draft.id, to: snapshot.id)
                 continuity.clearSelection(receiptID: draft.id)

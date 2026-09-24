@@ -4,7 +4,7 @@
 
 A local iPhone receipt-allocation workspace, not a payment or debt service. Primary iOS 26.0+, Swift 6, SwiftUI for native accessibility, SwiftData for sandbox persistence, Foundation/Codable for versioned backup, PhotosPicker for optional user-selected reference image. No runtime third-party dependencies needed initially. A pure Swift package owns money parsing, allocation, reconciliation, validated snapshots and restore validation; UI and storage adapt it without reimplementing financial rules.
 
-Scaffold is documentation-only: all components below are planned. Initial toolchain pin: Xcode 26.0.1 (17A400), iOS SDK 26.0 in toolchain.json. CI must verify executable version/build and SDK, not trust an application directory name. If absent, report an environment blocker; never silently use an older SDK or assert build success.
+The native app implements manual splitting, immutable review, photo references, and workspace continuity. Sharing/data ownership and release gates are tracked in issues #5–#7 and the evidence documents. Initial toolchain pin: Xcode 26.0.1 (17A400), iOS SDK 26.0 in toolchain.json. CI must verify executable version/build and SDK, not trust an application directory name. If absent, report an environment blocker; never silently use an older SDK or assert build success.
 
 ## Device support contract
 

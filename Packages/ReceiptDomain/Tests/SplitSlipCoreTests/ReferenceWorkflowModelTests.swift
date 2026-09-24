@@ -33,10 +33,11 @@ struct ReferenceWorkflowModelTests {
         let draft = seededDraft()
         let model = ReceiptWorkspaceModel(draft: draft, store: store, images: images, continuity: continuity)
 
-        let good = makeJPEGWithMetadata(appSegments: [(0xE1, Array("Exif\0\0GPS:1,2".utf8))])
-        // The synthetic fixture is not decodable by any codec, so sanitize
-        // takes the pure structural strip path on every platform.
-        let payload = good
+        #if canImport(ImageIO)
+        let payload = try makeImportableJPEG()
+        #else
+        let payload = makeJPEGWithMetadata(appSegments: [(0xE1, Array("Exif\0\0GPS:1,2".utf8))])
+        #endif
         #expect(model.importReferenceImage(payload: payload))
         #expect(model.referenceImageURL != nil)
         let firstBytes = try Data(contentsOf: #require(model.referenceImageURL))
@@ -94,7 +95,11 @@ struct ReferenceWorkflowModelTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let draft = seededDraft()
         let model = ReceiptWorkspaceModel(draft: draft, store: store, images: images, continuity: continuity)
+        #if canImport(ImageIO)
+        let payload = try makeImportableJPEG()
+        #else
         let payload = makeJPEGWithMetadata(appSegments: [])
+        #endif
         _ = model.importReferenceImage(payload: payload)
         model.selectTab(.people)
 
@@ -111,7 +116,11 @@ struct ReferenceWorkflowModelTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let draft = seededDraft()
         let model = ReceiptWorkspaceModel(draft: draft, store: store, images: images, continuity: continuity)
+        #if canImport(ImageIO)
+        _ = model.importReferenceImage(payload: try makeImportableJPEG())
+        #else
         _ = model.importReferenceImage(payload: makeJPEGWithMetadata(appSegments: []))
+        #endif
         model.selectTab(.people)
         let snapshotID = try #require(model.finalizeNow())
         let snapshot = try store.loadSnapshot(id: snapshotID)

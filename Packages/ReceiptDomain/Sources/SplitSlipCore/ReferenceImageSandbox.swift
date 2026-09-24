@@ -29,10 +29,9 @@ public enum ReferenceImageFormat: String, Hashable, Sendable {
 /// Platform-independent reference-image import pipeline (issue #4).
 ///
 /// Every accepted payload becomes a JPEG with all metadata removed:
-/// - JPEG payloads are always run through the structural marker stripper
-///   (APPn/EXIF/XMP/Comment segments deleted) so metadata cannot survive on
-///   any platform, then re-encoded through the system codec when one is
-///   available (Apple) for a guaranteed-clean transcode.
+/// - Apple platforms require a successful bounded ImageIO decode and fresh
+///   encode. Malformed JPEG marker streams are never accepted as images.
+/// - Hosts without ImageIO retain the structural JPEG test implementation.
 /// - Other decodable formats (PNG/GIF/BMP/TIFF/HEIC) are transcoded to JPEG
 ///   where the platform provides ImageIO; on hosts without a codec the
 ///   payload is rejected with a visible error, never stored unprocessed.
@@ -73,13 +72,15 @@ public enum ReferenceImageSandbox {
         let format = detectFormat(payload)
         switch format {
         case .jpeg:
-            let stripped = try stripJPEGMetadata(payload)
             #if canImport(ImageIO)
-            if let transcoded = transcodeToJPEG(payload), transcoded.count <= maximumInputBytes {
-                return SanitizedReferenceImage(jpeg: transcoded, sourceFormat: .jpeg, reencoded: true)
+            guard let transcoded = transcodeToJPEG(payload), transcoded.count <= maximumInputBytes else {
+                throw ReferenceImageError.failedVerification
             }
-            #endif
+            return SanitizedReferenceImage(jpeg: transcoded, sourceFormat: .jpeg, reencoded: true)
+            #else
+            let stripped = try stripJPEGMetadata(payload)
             return SanitizedReferenceImage(jpeg: stripped, sourceFormat: .jpeg, reencoded: false)
+            #endif
         case .png, .gif, .bmp, .tiff, .heic:
             #if canImport(ImageIO)
             if let transcoded = transcodeToJPEG(payload), transcoded.count <= maximumInputBytes {
@@ -120,9 +121,6 @@ public enum ReferenceImageSandbox {
                 output.append(contentsOf: input[markerStart..<j + 1])
                 i = j + 1
             case 0xD0...0xD7: // RSTn — appear inside scan data only
-                output.append(contentsOf: input[markerStart..<j + 1])
-                i = j + 1
-            case 0xDC, 0xDD: // DNL/DDL — standalone, no length field
                 output.append(contentsOf: input[markerStart..<j + 1])
                 i = j + 1
             case 0xD9: // EOI
@@ -181,8 +179,21 @@ public enum ReferenceImageSandbox {
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary),
               CGImageSourceGetCount(source) > 0,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
+              width.doubleValue > 0, height.doubleValue > 0,
+              width.doubleValue * height.doubleValue <= 48_000_000
         else { return nil }
+        // Decode to a bounded working image and bake in orientation before
+        // discarding metadata. Compressed byte size alone cannot bound memory.
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 4_096,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else { return nil }
 
         var hints: [CFString: Any] = [
             kCGImagePropertyHasAlpha: false,
@@ -197,7 +208,9 @@ public enum ReferenceImageSandbox {
         else { return nil }
         CGImageDestinationAddImage(destination, image, hints as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
-        return output.length > 0 ? output as Data : nil
+        // ImageIO may add fresh EXIF/JFIF records; drop those too. DRI/DNL
+        // are length-bearing JPEG segments and remain intact in the stripper.
+        return output.length > 0 ? try? stripJPEGMetadata(output as Data) : nil
     }
     #endif
 }
