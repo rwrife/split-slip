@@ -47,7 +47,7 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// ~content-scroll without momentum, so every row passes through the
     /// viewport slowly enough for virtualization to register it.
     @discardableResult
-    private func scrollUntil(_ condition: () -> Bool, timeout: TimeInterval = 12) -> Bool {
+    private func scrollUntil(timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
         if condition() { return true }
         // The TabView keeps both editor lists in the hierarchy; only the
         // visible one is hittable. Pick the hittable list, else firstMatch.
@@ -57,16 +57,21 @@ final class SplitSlipJourneyTests: XCTestCase {
         let list = visible.exists ? visible : app.collectionViews.firstMatch
         guard list.waitForExistence(timeout: 5) else { return false }
         for _ in 0..<3 { list.swipeDown() }
+        let window = app.frame
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }
             let frame = list.frame
-            guard frame.height > 0 else { return condition() }
+            guard frame.height > 0, window.width > 0, window.height > 0 else { return condition() }
             // Drag from the list's center upward: starts well inside the
             // scroll view (never on pinned chrome) and moves content by
             // roughly 36% of the viewport per settled step.
-            let end = CGPoint(x: frame.midX, y: frame.midY - frame.height * 0.36)
-            list.press(forDuration: 0.1, thenDragTo: end)
+            let midX = frame.midX / window.width
+            let start = app.coordinate(withNormalizedOffset:
+                CGVector(dx: midX, dy: frame.midY / window.height))
+            let end = app.coordinate(withNormalizedOffset:
+                CGVector(dx: midX, dy: (frame.midY - frame.height * 0.36) / window.height))
+            start.press(forDuration: 0.1, thenDragTo: end)
             usleep(300_000) // let virtualization settle after each step
         }
         return condition()
