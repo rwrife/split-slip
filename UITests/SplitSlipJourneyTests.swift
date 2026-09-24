@@ -49,12 +49,14 @@ final class SplitSlipJourneyTests: XCTestCase {
     @discardableResult
     private func scrollUntil(timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
         if condition() { return true }
-        // The TabView keeps both editor lists in the hierarchy; only the
-        // visible one is hittable. Pick the hittable list, else firstMatch.
-        let visible = app.collectionViews.matching(
-            NSPredicate(format: "hittable == true")
-        ).firstMatch
-        let list = visible.exists ? visible : app.collectionViews.firstMatch
+        // The TabView keeps both editor lists in the hierarchy with the
+        // same frame. Targeting firstMatch is intentional: synthesized
+        // gestures are delivered at window coordinates, so the visible
+        // (front) list always receives them even when the hidden tab's
+        // list is the one whose frame we measure. (An NSPredicate on
+        // `hittable` is not supported by XCUITest queries — run
+        // 107772230944: XCTElementQueryInvalidPredicate.)
+        let list = app.collectionViews.firstMatch
         guard list.waitForExistence(timeout: 5) else { return false }
         for _ in 0..<3 { list.swipeDown() }
         let window = app.frame
