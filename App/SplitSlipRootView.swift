@@ -105,7 +105,7 @@ struct SplitSlipRootView: View {
                                     ReceiptCard(title: receiptTitle(draft.lines),
                                                 names: draft.participants.map(\.displayName),
                                                 amount: draft.expectedTotal, currency: draft.currency,
-                                                status: draft.unassignedRowIDs().isEmpty ? "Continue editing" : "\(draft.unassignedRowIDs().count) items to assign",
+                                                status: draft.unassignedRowIDs().isEmpty ? "Continue editing" : "\(draft.unassignedRowIDs().count) item\(draft.unassignedRowIDs().count == 1 ? "" : "s") to assign",
                                                 complete: false)
                                 }
                                 .buttonStyle(.plain)
@@ -295,7 +295,7 @@ struct SnapshotDetailView: View {
                     Text("Nicely split.").font(.system(.largeTitle, design: .rounded, weight: .bold))
                     Text("\(snapshot.expectedTotal) \(snapshot.currency.rawValue)")
                         .font(.system(.largeTitle, design: .rounded, weight: .bold)).monospacedDigit()
-                    Text("\(snapshot.participants.count) people · \(snapshot.lines.count) items · All reviewed")
+                    Text("\(snapshot.participants.count) \(snapshot.participants.count == 1 ? "person" : "people") · \(snapshot.lines.count) item\(snapshot.lines.count == 1 ? "" : "s") · All reviewed")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Button { showShare = true } label: {
                         Label("Preview & share", systemImage: "square.and.arrow.up")

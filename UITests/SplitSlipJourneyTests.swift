@@ -219,11 +219,23 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
         app.buttons["editor.addParticipant"].tap()
         openTab("Receipt")
+        app.buttons["editor.splitEqually"].tap()
+        captureStoreScreenshot("04-quick-split")
+        openTab("People")
+        let fixedAmount = app.textFields["editor.person.Ana.amount"]
+        tapAndType(fixedAmount, text: "10.00")
+        let automaticAmount = app.textFields["editor.person.Bo.amount"]
+        XCTAssertTrue(reveal(automaticAmount))
+        captureStoreScreenshot("05-custom-amounts")
+        openTab("Receipt")
+        app.buttons["editor.assignByItem"].tap()
         app.buttons["editor.addLine"].tap()
         tapAndType(app.textFields["editor.line.0.label"], text: "Lunch")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
-        XCTAssertTrue(reveal(app.buttons["editor.splitEqually"]))
-        app.buttons["editor.splitEqually"].tap()
+        for name in ["Ana", "Bo"] {
+            let selector = app.switches["editor.line.0.person.\(name)"]
+            XCTAssertTrue(reveal(selector)); selector.tap()
+        }
         XCTAssertTrue(revealText("Rows match the entered total"))
         app.swipeDown()
         captureStoreScreenshot("01-receipt-editor")
@@ -233,6 +245,8 @@ final class SplitSlipJourneyTests: XCTestCase {
         captureStoreScreenshot("02-receipts")
         app.buttons["home.snapshot.0"].tap()
         containerExists("snapshot.readonly")
+        app.buttons["snapshot.person.0.expand"].tap()
+        XCTAssertTrue(revealText("Lunch"))
         captureStoreScreenshot("03-person-totals")
     }
 

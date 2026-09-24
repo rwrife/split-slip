@@ -1,12 +1,15 @@
-Split shared meals and purchases with a clear total for each person. Split Slip lets you enter a receipt, choose who shares each item, and check the numbers before saving the result.
+Split shared meals and purchases with a clear total for each person. Split Slip helps you divide a receipt, review the amounts, and save or share the result.
 
-ENTER YOUR RECEIPT
-Choose USD, EUR or GBP, enter the printed grand total, and add participant nicknames and item amounts. Record fee or discount adjustments explicitly.
+START WITH JUST THE TOTAL
+Enter the receipt total, add your people, and split equally. A starter item follows your total automatically, so you can finish without entering every item.
 
-CHOOSE HOW TO SPLIT
-Assign items to selected people using equal shares or positive whole-number weights. Review unassigned rows and the difference between your entries and the receipt total.
+SPLIT YOUR WAY
+Enter a fixed dollar amount for anyone and divide the remainder equally among the others. Automatic shares update when receipt amounts change. For detailed splits, enter individual items and choose who shares each one, with optional whole-number weights. Record fees and discounts explicitly. Supports USD, EUR, and GBP.
 
-REVIEW AND SAVE
-Finalize only when every row is assigned and the totals match. Keep finalized receipts in local storage and review each person's share. Need a correction? Duplicate a finalized receipt into a linked draft while preserving the original.
+REVIEW EVERY SHARE
+Check the totals before finalizing. Tap a person on a finalized receipt to expand their details. Item-based splits show their exact item amounts; whole-receipt splits show the shared items separately from their personal total. Duplicate a finalized receipt to make a correction while preserving the original.
+
+KEEP CONTROL OF YOUR DATA
+Search your saved receipts, preview text or CSV summaries, and share through the system share sheet. Export a private backup, restore a backup, or delete receipts and their local photos. Receipt data stays on your device unless you choose to export or share it; device backups and Files providers follow your settings.
 
 Split Slip organizes the arithmetic. You enter and review the amounts; the app does not scan receipts or send payments.
