@@ -176,6 +176,24 @@ final class SplitSlipJourneyTests: XCTestCase {
         element.tap()
     }
 
+    /// Tap a control that must present a confirmation alert and return the
+    /// alert. A row delete-button tap can be swallowed while a navigation
+    /// pop is still settling the list: the row polls hittable mid-
+    /// animation but is recycled by the time the event synthesizes (run
+    /// 36044426143: 'No matches found for Descendants matching type
+    /// Alert' after the home.snapshot.0.delete tap). Waiting on the alert
+    /// and retrying once from a settled frame makes the pair
+    /// deterministic without weakening the assertion.
+    private func confirmationAlert(afterTapping trigger: XCUIElement) -> XCUIElement {
+        trigger.tap()
+        let alert = app.alerts.firstMatch
+        if alert.waitForExistence(timeout: 4) { return alert }
+        settledTap(trigger)
+        XCTAssertTrue(alert.waitForExistence(timeout: 6),
+                      "confirmation alert never appeared for \(trigger.identifier)")
+        return alert
+    }
+
     /// Tap, type, then commit deterministically. The keyboard toolbar "Done"
     /// button appears in some layouts; when it does not (TabView layout),
     /// pressing Return triggers the field's `onSubmit` focus release. Then
@@ -447,10 +465,10 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(revealText("Appetizer"))
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let delete = app.buttons["home.snapshot.0.delete"]
-        XCTAssertTrue(reveal(delete)); delete.tap()
-        app.alerts.buttons["Keep receipt"].tap()
+        XCTAssertTrue(reveal(delete))
+        confirmationAlert(afterTapping: delete).buttons["Keep receipt"].tap()
         XCTAssertTrue(snapshot.exists)
-        delete.tap(); app.alerts.buttons["Delete receipt"].tap()
+        confirmationAlert(afterTapping: delete).buttons["Delete receipt"].tap()
         app.terminate(); app.launch()
         XCTAssertFalse(app.buttons["home.snapshot.0"].exists)
     }
