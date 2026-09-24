@@ -306,45 +306,29 @@ struct SnapshotDetailView: View {
             }.listRowBackground(SlipStyle.accent.opacity(0.09))
             Section {
                 ForEach(Array(snapshot.personShares.enumerated()), id: \.element.participant.id) { index, share in
-                    DisclosureGroup(isExpanded: Binding(
-                        get: { expandedPeople.contains(share.participant.id) },
-                        set: { if $0 { expandedPeople.insert(share.participant.id) } else { expandedPeople.remove(share.participant.id) } })) {
-                        if let split = snapshot.receiptSplit {
-                            Text(split[share.participant.id] == nil
-                                 ? "Equal share of the remainder after fixed amounts."
-                                 : "Fixed share of the whole receipt.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                            Text("Shared receipt items · amounts below are the full item prices")
-                                .font(.caption).foregroundStyle(.secondary)
-                            ForEach(snapshot.lines) { line in
-                                LabeledContent(line.label, value: line.amount.description)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button {
+                            if expandedPeople.contains(share.participant.id) { expandedPeople.remove(share.participant.id) }
+                            else { expandedPeople.insert(share.participant.id) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                PersonBadge(name: share.participant.displayName, index: index)
+                                LabeledContent(share.participant.displayName, value: "\(MinorAmount(minorUnits: share.totalMinorUnits)) \(snapshot.currency.rawValue)")
+                                    .font(.headline).monospacedDigit()
+                                Image(systemName: expandedPeople.contains(share.participant.id) ? "chevron.up" : "chevron.down")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
-                            ForEach(snapshot.adjustments) { adjustment in
-                                LabeledContent(adjustment.label, value: adjustment.amount.description)
-                            }
-                        } else {
-                            ForEach(snapshot.lines) { line in
-                                if let amount = share.rowShares[line.id] {
-                                    LabeledContent(line.label, value: MinorAmount(minorUnits: amount).description)
-                                        .accessibilityIdentifier("snapshot.person.\(index).item.\(line.id)")
-                                }
-                            }
-                            ForEach(snapshot.adjustments) { adjustment in
-                                if let amount = share.rowShares[adjustment.id] {
-                                    LabeledContent(adjustment.label, value: MinorAmount(minorUnits: amount).description)
-                                }
-                            }
-                            if share.rowShares.isEmpty { Text("No items assigned to this person.").foregroundStyle(.secondary) }
+                            .padding(.vertical, 10).contentShape(Rectangle())
                         }
-                    } label: {
-                        HStack(spacing: 12) {
-                            PersonBadge(name: share.participant.displayName, index: index)
-                            LabeledContent(share.participant.displayName, value: "\(MinorAmount(minorUnits: share.totalMinorUnits)) \(snapshot.currency.rawValue)")
-                                .font(.headline).monospacedDigit()
-                        }.padding(.vertical, 10)
-                            .accessibilityIdentifier("snapshot.total.\(index)")
+                        .buttonStyle(.plain)
+                        .accessibilityValue(expandedPeople.contains(share.participant.id) ? "Expanded" : "Collapsed")
+                        .accessibilityHint("Show or hide the items for this person")
+                        .accessibilityIdentifier("snapshot.person.\(index).expand")
+                        if expandedPeople.contains(share.participant.id) {
+                            Divider()
+                            personItems(share, index: index)
+                        }
                     }
-                    .accessibilityIdentifier("snapshot.person.\(index).expand")
                 }
                 LabeledContent("Receipt total", value: snapshot.expectedTotal.description)
                     .accessibilityIdentifier("snapshot.grandTotal")
@@ -378,6 +362,38 @@ struct SnapshotDetailView: View {
                 Button("Duplicate to correct") { duplicate() }
                     .accessibilityIdentifier("snapshot.duplicate")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func personItems(_ share: FinalizedPersonShare, index: Int) -> some View {
+        if let split = snapshot.receiptSplit {
+            Text(split[share.participant.id] == nil
+                 ? "Equal share of the remainder after fixed amounts."
+                 : "Fixed share of the whole receipt.")
+                .font(.footnote).foregroundStyle(.secondary)
+            Text("Shared receipt items · amounts below are the full item prices")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(snapshot.lines) { line in
+                LabeledContent(line.label, value: line.amount.description)
+            }
+            ForEach(snapshot.adjustments) { adjustment in
+                LabeledContent(adjustment.label, value: adjustment.amount.description)
+            }
+        } else {
+            ForEach(snapshot.lines) { line in
+                if let amount = share.rowShares[line.id] {
+                    LabeledContent(line.label, value: MinorAmount(minorUnits: amount).description)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("snapshot.person.\(index).item.\(line.id)")
+                }
+            }
+            ForEach(snapshot.adjustments) { adjustment in
+                if let amount = share.rowShares[adjustment.id] {
+                    LabeledContent(adjustment.label, value: MinorAmount(minorUnits: amount).description)
+                }
+            }
+            if share.rowShares.isEmpty { Text("No items assigned to this person.").foregroundStyle(.secondary) }
         }
     }
 

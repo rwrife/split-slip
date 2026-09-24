@@ -359,8 +359,10 @@ final class SplitSlipJourneyTests: XCTestCase {
         let expand = app.buttons["snapshot.person.0.expand"]
         XCTAssertTrue(reveal(expand)); expand.tap()
         let item = app.descendants(matching: .any)["snapshot.person.0.item.BBBBBBBB-0000-0000-0000-0000000000B1"]
-        XCTAssertTrue(revealExists(item))
+        XCTAssertTrue(revealExists(item), app.debugDescription)
         XCTAssertTrue(revealText("5.00"))
+        let expanded = XCTAttachment(screenshot: app.screenshot())
+        expanded.name = "Finalized person item details"; expanded.lifetime = .keepAlways; add(expanded)
         expand.tap()
         XCTAssertFalse(item.exists)
     }
