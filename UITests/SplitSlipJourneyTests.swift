@@ -27,19 +27,53 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), message ?? "container \(identifier) missing")
     }
 
-    /// Alternating bounded list scrolls until an element is hittable. The
-    /// app UI needs no gestures; scrolling is test-side navigation only.
+    /// Scroll the visible editor List in small settled increments (starting
+    /// from the top) until `condition` holds.
+    ///
+    /// SwiftUI `List` virtualizes off-screen rows: they exist in the AX tree
+    /// only while rendered. The previous reveal loop used app-level
+    /// `app.swipeDown()/swipeUp()` — full-window flings that (a) can start
+    /// on pinned chrome outside the list (reconciliation bar / tab bar)
+    /// where no scrolling happens at all, and (b) hurl the scroll position
+    /// past mid-content rows without ever settling on them, so virtualized
+    /// rows like `editor.reference.zoomIn` never materialize between polls
+    /// (frame dumps in runs 35857097157/35859175254: sibling rows persist
+    /// while the sought control is absent from the tree).
+    ///
+    /// Instead: locate the list's own collection view, rewind to the top
+    /// with full swipes ON THE LIST element (the drag is then synthesized
+    /// inside its frame and always routes to the scroll view), then step
+    /// downward with slow press-then-drag gestures — a held drag produces
+    /// ~content-scroll without momentum, so every row passes through the
+    /// viewport slowly enough for virtualization to register it.
     @discardableResult
-    private func reveal(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
-        if pollHittable(element, seconds: 2) { return true }
+    private func scrollUntil(_ condition: () -> Bool, timeout: TimeInterval = 12) -> Bool {
+        if condition() { return true }
+        // The TabView keeps both editor lists in the hierarchy; only the
+        // visible one is hittable. Pick the hittable list, else firstMatch.
+        let visible = app.collectionViews.matching(
+            NSPredicate(format: "hittable == true")
+        ).firstMatch
+        let list = visible.exists ? visible : app.collectionViews.firstMatch
+        guard list.waitForExistence(timeout: 5) else { return false }
+        for _ in 0..<3 { list.swipeDown() }
         let deadline = Date().addingTimeInterval(timeout)
-        var scrollDownFirst = true
         while Date() < deadline {
-            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
-            scrollDownFirst.toggle()
-            if pollHittable(element, seconds: 1) { return true }
+            if condition() { return true }
+            let frame = list.frame
+            guard frame.height > 0 else { return condition() }
+            // Drag from the list's center upward: starts well inside the
+            // scroll view (never on pinned chrome) and moves content by
+            // roughly 36% of the viewport per settled step.
+            let end = CGPoint(x: frame.midX, y: frame.midY - frame.height * 0.36)
+            list.press(forDuration: 0.1, thenDragTo: end)
+            usleep(300_000) // let virtualization settle after each step
         }
-        return false
+        return condition()
+    }
+
+    private func reveal(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
+        scrollUntil(timeout: timeout) { (try? element.isHittable) == true }
     }
 
     @discardableResult
@@ -49,15 +83,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         let element = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", text)
         ).firstMatch
-        if element.waitForExistence(timeout: 2) { return true }
-        let deadline = Date().addingTimeInterval(timeout)
-        var scrollDownFirst = true
-        while Date() < deadline {
-            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
-            scrollDownFirst.toggle()
-            if element.waitForExistence(timeout: 1) { return true }
-        }
-        return false
+        return scrollUntil(timeout: timeout) { element.exists }
     }
 
     /// Same scroll-reveal as `reveal` but keyed on existence rather than
@@ -66,15 +92,7 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// `isHittable` would then false-fail a genuinely-present indicator.
     @discardableResult
     private func revealExists(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
-        if element.waitForExistence(timeout: 2) { return true }
-        let deadline = Date().addingTimeInterval(timeout)
-        var scrollDownFirst = true
-        while Date() < deadline {
-            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
-            scrollDownFirst.toggle()
-            if element.waitForExistence(timeout: 1) { return true }
-        }
-        return false
+        scrollUntil(timeout: timeout) { element.exists }
     }
 
     private func pollHittable(_ element: XCUIElement, seconds: TimeInterval) -> Bool {
@@ -113,6 +131,16 @@ final class SplitSlipJourneyTests: XCTestCase {
             }
         }
         return lines.joined(separator: " | ")
+    }
+
+    /// Reveal-then-tap for controls that live inside the virtualized List
+    /// rows (add-line, add-participant, expanders): a raw `.tap()` fails
+    /// outright when the row is currently scrolled out of the rendered
+    /// window, which is what poisoned runs 36018165069/36018377186 at
+    /// `editor.addLine`. Toolbar chrome is safe to tap directly.
+    private func tapRevealed(_ element: XCUIElement) {
+        XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
+        element.tap()
     }
 
     /// Tap, type, then commit deterministically. The keyboard toolbar "Done"
@@ -181,12 +209,12 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.expectedTotal"], text: "20.00")
         openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
 
         openTab("Receipt")
-        app.buttons["editor.addLine"].tap()
+        tapRevealed(app.buttons["editor.addLine"])
         tapAndType(app.textFields["editor.line.0.label"], text: "Appetizer")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
 
@@ -215,9 +243,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.expectedTotal"], text: "30.00")
         openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         openTab("Receipt")
         app.buttons["editor.splitEqually"].tap()
         captureStoreScreenshot("04-quick-split")
@@ -229,7 +257,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         captureStoreScreenshot("05-custom-amounts")
         openTab("Receipt")
         app.buttons["editor.assignByItem"].tap()
-        app.buttons["editor.addLine"].tap()
+        tapRevealed(app.buttons["editor.addLine"])
         tapAndType(app.textFields["editor.line.0.label"], text: "Lunch")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
         for name in ["Ana", "Bo"] {
@@ -245,7 +273,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         captureStoreScreenshot("02-receipts")
         app.buttons["home.snapshot.0"].tap()
         containerExists("snapshot.readonly")
-        app.buttons["snapshot.person.0.expand"].tap()
+        tapRevealed(app.buttons["snapshot.person.0.expand"])
         XCTAssertTrue(revealText("Lunch"))
         captureStoreScreenshot("03-person-totals")
     }
@@ -403,7 +431,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         openTab("People")
         for name in ["Ana", "Bo"] {
             tapAndType(app.textFields["editor.participantName"], text: name)
-            app.buttons["editor.addParticipant"].tap()
+            tapRevealed(app.buttons["editor.addParticipant"])
         }
         app.buttons["editor.splitEqually"].tap()
         XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
@@ -412,7 +440,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(saved.waitForExistence(timeout: 10)); saved.tap()
         XCTAssertTrue(revealText("6.01"))
         XCTAssertTrue(revealText("6.00"))
-        app.buttons["snapshot.person.0.expand"].tap()
+        tapRevealed(app.buttons["snapshot.person.0.expand"])
         XCTAssertTrue(revealText("Receipt total"))
     }
 
@@ -526,9 +554,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         // Add a person, then a line, split it, and removal must confirm first.
         openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         openTab("Receipt")
-        app.buttons["editor.addLine"].tap()
+        tapRevealed(app.buttons["editor.addLine"])
         tapAndType(app.textFields["editor.line.0.label"], text: "Food")
         tapAndType(app.textFields["editor.line.0.amount"], text: "5.00")
         let selector = app.switches["editor.line.0.person.Ana"]
