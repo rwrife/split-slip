@@ -185,10 +185,16 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// and retrying once from a settled frame makes the pair
     /// deterministic without weakening the assertion.
     private func confirmationAlert(afterTapping trigger: XCUIElement) -> XCUIElement {
-        trigger.tap()
         let alert = app.alerts.firstMatch
+        trigger.tap()
         if alert.waitForExistence(timeout: 4) { return alert }
-        settledTap(trigger)
+        // No alert yet: either the tap never registered (settling list
+        // recycled the row) or the alert is slow. Re-tap only while the
+        // element is hittable AND no alert is up; if either changes we
+        // stop and let the final wait adjudicate.
+        if (try? trigger.isHittable) == true, !alert.exists {
+            settledTap(trigger)
+        }
         XCTAssertTrue(alert.waitForExistence(timeout: 6),
                       "confirmation alert never appeared for \(trigger.identifier)")
         return alert
