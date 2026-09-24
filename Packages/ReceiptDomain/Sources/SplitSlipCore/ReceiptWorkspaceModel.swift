@@ -565,7 +565,7 @@ public final class ReceiptWorkspaceModel {
 
     /// Non-empty when finalization must stay blocked; each entry is visible copy.
     public func finalizationBlockers() -> [String] {
-        var blockers = fieldMessages.filter { $0.key.hasPrefix("personAmount:") }.map(\.value)
+        var blockers = fieldMessages.filter { $0.key == "expectedTotal" || $0.key.hasPrefix("personAmount:") }.map(\.value)
         do {
             _ = try draft.validated()
         } catch let error as ReceiptValidationError {
