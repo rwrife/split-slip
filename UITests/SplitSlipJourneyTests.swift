@@ -345,6 +345,26 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["home.snapshot.0"].exists)
     }
 
+    func testFinalizedPersonExpandsTheirAssignedItems() throws {
+        app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "ABAAAAAA-0000-0000-0000-000000000001"]
+        app.launch()
+        app.buttons["home.draft.0"].tap()
+        openTab("Receipt")
+        tapAndType(app.textFields["editor.expectedTotal"], text: "5.00")
+        let selector = app.switches["editor.line.0.person.Ana"]
+        XCTAssertTrue(reveal(selector)); selector.tap()
+        app.buttons["editor.finalize"].tap()
+        let saved = app.buttons["home.snapshot.0"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 10)); saved.tap()
+        let expand = app.buttons["snapshot.person.0.expand"]
+        XCTAssertTrue(reveal(expand)); expand.tap()
+        let item = app.descendants(matching: .any)["snapshot.person.0.item.BBBBBBBB-0000-0000-0000-0000000000B1"]
+        XCTAssertTrue(revealExists(item))
+        XCTAssertTrue(revealText("5.00"))
+        expand.tap()
+        XCTAssertFalse(item.exists)
+    }
+
     func testFilesBackupDeleteAndRestore() throws {
         app.launchArguments = ["-ui-testing", "-reset-store", "-seed-workspace", "EEAAAAAA-0000-0000-0000-000000000001"]
         app.launch()
