@@ -49,15 +49,21 @@ final class SplitSlipJourneyTests: XCTestCase {
     @discardableResult
     private func scrollUntil(timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
         if condition() { return true }
-        // The TabView keeps both editor lists in the hierarchy with the
-        // same frame. Targeting firstMatch is intentional: synthesized
-        // gestures are delivered at window coordinates, so the visible
-        // (front) list always receives them even when the hidden tab's
-        // list is the one whose frame we measure. (An NSPredicate on
-        // `hittable` is not supported by XCUITest queries — run
-        // 107772230944: XCTElementQueryInvalidPredicate.)
-        let list = app.collectionViews.firstMatch
-        guard list.waitForExistence(timeout: 5) else { return false }
+        // Several Lists can remain in the AX hierarchy after navigation or
+        // behind a sheet. Select the front, hittable collection rather than
+        // firstMatch: run 36047714152 proved firstMatch can resolve to the
+        // covered home.root List while the Your Data sheet is visible.
+        // (`hittable` is unsupported inside an XCUITest NSPredicate, so
+        // inspect the bounded elements directly.)
+        let listDeadline = Date().addingTimeInterval(5)
+        var list: XCUIElement?
+        while Date() < listDeadline, list == nil {
+            list = app.collectionViews.allElementsBoundByIndex.first {
+                (try? $0.isHittable) == true
+            }
+            if list == nil { usleep(250_000) }
+        }
+        guard let list else { return false }
         for _ in 0..<3 { list.swipeDown() }
         let window = app.frame
         let deadline = Date().addingTimeInterval(timeout)
@@ -186,7 +192,13 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// deterministic without weakening the assertion.
     private func confirmationAlert(afterTapping trigger: XCUIElement) -> XCUIElement {
         let alert = app.alerts.firstMatch
-        trigger.tap()
+        // The initial tap must also be settled, not raw: run 36047714152
+        // reproduced the exact same "alert never appeared" failure straight
+        // after a BackButton pop (t=96.06s tap, t=96.50s idle) — the
+        // navigation transition was likely still animating the row 1s
+        // later when delete was struck, so a raw tap on an unsettled row
+        // can be swallowed on the very first attempt, not just the retry.
+        settledTap(trigger)
         if alert.waitForExistence(timeout: 4) { return alert }
         // No alert yet: either the tap never registered (settling list
         // recycled the row) or the alert is slow. Re-tap only while the
