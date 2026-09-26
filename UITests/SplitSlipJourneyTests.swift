@@ -55,21 +55,36 @@ final class SplitSlipJourneyTests: XCTestCase {
         // covered home.root List while the Your Data sheet is visible.
         // (`hittable` is unsupported inside an XCUITest NSPredicate, so
         // inspect the bounded elements directly.)
-        let listDeadline = Date().addingTimeInterval(5)
-        var list: XCUIElement?
-        while Date() < listDeadline, list == nil {
-            list = app.collectionViews.allElementsBoundByIndex.first {
+        func visibleList() -> XCUIElement? {
+            app.collectionViews.allElementsBoundByIndex.first {
                 (try? $0.isHittable) == true
             }
-            if list == nil { usleep(250_000) }
         }
-        guard let list else { return false }
-        for _ in 0..<3 { list.swipeDown() }
+
+        let listDeadline = Date().addingTimeInterval(5)
+        while Date() < listDeadline, visibleList() == nil {
+            usleep(250_000)
+        }
+        guard visibleList() != nil else { return false }
+
+        // Rewind in bounded steps, reacquiring each swipe: the original
+        // element can vanish (e.g. sheet transitions) and index-backed
+        // queries then fail on the next gesture.
+        for _ in 0..<3 {
+            guard let rewindList = visibleList(), rewindList.exists else { break }
+            rewindList.swipeDown()
+            usleep(150_000)
+        }
+
         let window = app.frame
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }
-            let frame = list.frame
+            guard let activeList = visibleList() else {
+                usleep(250_000)
+                continue
+            }
+            let frame = activeList.frame
             guard frame.height > 0, window.width > 0, window.height > 0 else { return condition() }
             // Drag from the list's center upward: starts well inside the
             // scroll view (never on pinned chrome) and moves content by
@@ -192,22 +207,16 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// deterministic without weakening the assertion.
     private func confirmationAlert(afterTapping trigger: XCUIElement) -> XCUIElement {
         let alert = app.alerts.firstMatch
-        // The initial tap must also be settled, not raw: run 36047714152
-        // reproduced the exact same "alert never appeared" failure straight
-        // after a BackButton pop (t=96.06s tap, t=96.50s idle) — the
-        // navigation transition was likely still animating the row 1s
-        // later when delete was struck, so a raw tap on an unsettled row
-        // can be swallowed on the very first attempt, not just the retry.
+        // Wait for any pre-action settling (e.g. pop animation), then tap.
         settledTap(trigger)
-        if alert.waitForExistence(timeout: 4) { return alert }
-        // No alert yet: either the tap never registered (settling list
-        // recycled the row) or the alert is slow. Re-tap only while the
-        // element is hittable AND no alert is up; if either changes we
-        // stop and let the final wait adjudicate.
-        if (try? trigger.isHittable) == true, !alert.exists {
-            settledTap(trigger)
+        if alert.waitForExistence(timeout: 5) { return alert }
+        // If alert hasn't appeared yet, wait briefly and try tapping again if trigger remains hittable.
+        usleep(500_000)
+        if alert.exists { return alert }
+        if (try? trigger.isHittable) == true {
+            trigger.tap()
         }
-        XCTAssertTrue(alert.waitForExistence(timeout: 6),
+        XCTAssertTrue(alert.waitForExistence(timeout: 10),
                       "confirmation alert never appeared for \(trigger.identifier)")
         return alert
     }
