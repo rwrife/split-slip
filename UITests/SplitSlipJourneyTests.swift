@@ -27,19 +27,81 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), message ?? "container \(identifier) missing")
     }
 
-    /// Alternating bounded list scrolls until an element is hittable. The
-    /// app UI needs no gestures; scrolling is test-side navigation only.
+    /// Scroll the visible editor List in small settled increments (starting
+    /// from the top) until `condition` holds.
+    ///
+    /// SwiftUI `List` virtualizes off-screen rows: they exist in the AX tree
+    /// only while rendered. The previous reveal loop used app-level
+    /// `app.swipeDown()/swipeUp()` — full-window flings that (a) can start
+    /// on pinned chrome outside the list (reconciliation bar / tab bar)
+    /// where no scrolling happens at all, and (b) hurl the scroll position
+    /// past mid-content rows without ever settling on them, so virtualized
+    /// rows like `editor.reference.zoomIn` never materialize between polls
+    /// (frame dumps in runs 35857097157/35859175254: sibling rows persist
+    /// while the sought control is absent from the tree).
+    ///
+    /// Instead: locate the list's own collection view, rewind to the top
+    /// with full swipes ON THE LIST element (the drag is then synthesized
+    /// inside its frame and always routes to the scroll view), then step
+    /// downward with slow press-then-drag gestures — a held drag produces
+    /// ~content-scroll without momentum, so every row passes through the
+    /// viewport slowly enough for virtualization to register it.
     @discardableResult
-    private func reveal(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
-        if pollHittable(element, seconds: 2) { return true }
-        let deadline = Date().addingTimeInterval(timeout)
-        var scrollDownFirst = true
-        while Date() < deadline {
-            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
-            scrollDownFirst.toggle()
-            if pollHittable(element, seconds: 1) { return true }
+    private func scrollUntil(timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
+        if condition() { return true }
+        // Several Lists can remain in the AX hierarchy after navigation or
+        // behind a sheet. Select the front, hittable collection rather than
+        // firstMatch: run 36047714152 proved firstMatch can resolve to the
+        // covered home.root List while the Your Data sheet is visible.
+        // (`hittable` is unsupported inside an XCUITest NSPredicate, so
+        // inspect the bounded elements directly.)
+        func visibleList() -> XCUIElement? {
+            app.collectionViews.allElementsBoundByIndex.first {
+                (try? $0.isHittable) == true
+            }
         }
-        return false
+
+        let listDeadline = Date().addingTimeInterval(5)
+        while Date() < listDeadline, visibleList() == nil {
+            usleep(250_000)
+        }
+        guard visibleList() != nil else { return false }
+
+        // Rewind in bounded steps, reacquiring each swipe: the original
+        // element can vanish (e.g. sheet transitions) and index-backed
+        // queries then fail on the next gesture.
+        for _ in 0..<3 {
+            guard let rewindList = visibleList(), rewindList.exists else { break }
+            rewindList.swipeDown()
+            usleep(150_000)
+        }
+
+        let window = app.frame
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            guard let activeList = visibleList() else {
+                usleep(250_000)
+                continue
+            }
+            let frame = activeList.frame
+            guard frame.height > 0, window.width > 0, window.height > 0 else { return condition() }
+            // Drag from the list's center upward: starts well inside the
+            // scroll view (never on pinned chrome) and moves content by
+            // roughly 36% of the viewport per settled step.
+            let midX = frame.midX / window.width
+            let start = app.coordinate(withNormalizedOffset:
+                CGVector(dx: midX, dy: frame.midY / window.height))
+            let end = app.coordinate(withNormalizedOffset:
+                CGVector(dx: midX, dy: (frame.midY - frame.height * 0.36) / window.height))
+            start.press(forDuration: 0.1, thenDragTo: end)
+            usleep(300_000) // let virtualization settle after each step
+        }
+        return condition()
+    }
+
+    private func reveal(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
+        scrollUntil(timeout: timeout) { (try? element.isHittable) == true }
     }
 
     @discardableResult
@@ -49,15 +111,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         let element = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", text)
         ).firstMatch
-        if element.waitForExistence(timeout: 2) { return true }
-        let deadline = Date().addingTimeInterval(timeout)
-        var scrollDownFirst = true
-        while Date() < deadline {
-            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
-            scrollDownFirst.toggle()
-            if element.waitForExistence(timeout: 1) { return true }
-        }
-        return false
+        return scrollUntil(timeout: timeout) { element.exists }
     }
 
     /// Same scroll-reveal as `reveal` but keyed on existence rather than
@@ -66,15 +120,7 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// `isHittable` would then false-fail a genuinely-present indicator.
     @discardableResult
     private func revealExists(_ element: XCUIElement, timeout: TimeInterval = 12) -> Bool {
-        if element.waitForExistence(timeout: 2) { return true }
-        let deadline = Date().addingTimeInterval(timeout)
-        var scrollDownFirst = true
-        while Date() < deadline {
-            if scrollDownFirst { app.swipeDown() } else { app.swipeUp() }
-            scrollDownFirst.toggle()
-            if element.waitForExistence(timeout: 1) { return true }
-        }
-        return false
+        scrollUntil(timeout: timeout) { element.exists }
     }
 
     private func pollHittable(_ element: XCUIElement, seconds: TimeInterval) -> Bool {
@@ -115,13 +161,90 @@ final class SplitSlipJourneyTests: XCTestCase {
         return lines.joined(separator: " | ")
     }
 
+    /// Reveal-then-tap for controls that live inside the virtualized List
+    /// rows (add-line, add-participant, expanders): a raw `.tap()` fails
+    /// outright when the row is currently scrolled out of the rendered
+    /// window, which is what poisoned runs 36018165069/36018377186 at
+    /// `editor.addLine`. Toolbar chrome is safe to tap directly.
+    private func tapRevealed(_ element: XCUIElement) {
+        XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
+        settledTap(element)
+    }
+
+    /// Tap only once the element is hittable AND its frame has stopped
+    /// moving. A virtualized List row can be recycled by still-settling
+    /// scroll between a successful hittable poll and the snapshot `tap()`
+    /// takes internally (run 107772230944: 'Failed to get matching
+    /// snapshot' ~1-2 s AFTER the reveal passed). Sampling hittable plus
+    /// two identical consecutive frames proves the list is quiescent
+    /// before the tap's snapshot is required.
+    private func settledTap(_ element: XCUIElement) {
+        let deadline = Date().addingTimeInterval(8)
+        var last = CGRect.zero
+        while Date() < deadline {
+            guard element.exists, (try? element.isHittable) == true else {
+                usleep(250_000); last = .zero; continue
+            }
+            let frame = element.frame
+            if frame == last, frame != .zero { element.tap(); return }
+            last = frame
+            usleep(350_000)
+        }
+        // Never saw two identical frames in time: only tap while hittable,
+        // so any failure still points at the real UI problem, not the gate.
+        XCTAssertTrue((try? element.isHittable) == true,
+                      "element \(element.identifier) not hittable before tap")
+        element.tap()
+    }
+
+    /// Tap a control that must present a confirmation alert and return the
+    /// alert. A row delete-button tap can be swallowed while a navigation
+    /// pop is still settling the list: the row polls hittable mid-
+    /// animation but is recycled by the time the event synthesizes (run
+    /// 36044426143: 'No matches found for Descendants matching type
+    /// Alert' after the home.snapshot.0.delete tap). Waiting on the alert
+    /// and retrying once from a settled frame makes the pair
+    /// deterministic without weakening the assertion.
+    private func confirmationAlert(afterTapping trigger: XCUIElement) -> XCUIElement {
+        let alert = app.alerts.firstMatch
+        // Re-reveal before every tap, not just the first. A prior alert's
+        // dismiss animation (e.g. "Keep receipt") can leave the trigger
+        // temporarily non-hittable even though no scroll actually moved it;
+        // `reveal` re-polls hittability (scrolling only if truly needed)
+        // instead of assuming the caller's earlier reveal still holds
+        // (run 36270150541 failed here on the second call with "not
+        // hittable before tap" right after dismissing the first alert).
+        XCTAssertTrue(reveal(trigger), "element \(trigger.identifier) never became hittable")
+        settledTap(trigger)
+        if alert.waitForExistence(timeout: 5) { return alert }
+        // The first tap can leave the cached XCUIElement non-hittable even
+        // though the same identified row is still visible. Re-query it by
+        // identifier before retrying instead of gating the retry on the stale
+        // handle (run 36268291375 showed no second Tap after the wait).
+        usleep(500_000)
+        if alert.exists { return alert }
+        let retry = app.buttons[trigger.identifier]
+        if reveal(retry, timeout: 6), retry.exists {
+            // A SwiftUI List control can report `isHittable == false` during
+            // row reconciliation while its frame is still onscreen. Tapping
+            // the frame center bypasses that stale AX hit-test state.
+            let frame = retry.frame
+            let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+                .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+            center.tap()
+        }
+        XCTAssertTrue(alert.waitForExistence(timeout: 10),
+                      "confirmation alert never appeared for \(trigger.identifier)")
+        return alert
+    }
+
     /// Tap, type, then commit deterministically. The keyboard toolbar "Done"
     /// button appears in some layouts; when it does not (TabView layout),
     /// pressing Return triggers the field's `onSubmit` focus release. Then
     /// wait for the keyboard to actually hide so tab-bar taps stay hittable.
     private func tapAndType(_ element: XCUIElement, text: String) {
         XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
-        element.tap()
+        settledTap(element)
         element.typeText(text)
         commitKeyboard(element)
     }
@@ -181,12 +304,12 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.expectedTotal"], text: "20.00")
         openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
 
         openTab("Receipt")
-        app.buttons["editor.addLine"].tap()
+        tapRevealed(app.buttons["editor.addLine"])
         tapAndType(app.textFields["editor.line.0.label"], text: "Appetizer")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
 
@@ -215,9 +338,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         tapAndType(app.textFields["editor.expectedTotal"], text: "30.00")
         openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         tapAndType(app.textFields["editor.participantName"], text: "Bo")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         openTab("Receipt")
         app.buttons["editor.splitEqually"].tap()
         captureStoreScreenshot("04-quick-split")
@@ -229,7 +352,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         captureStoreScreenshot("05-custom-amounts")
         openTab("Receipt")
         app.buttons["editor.assignByItem"].tap()
-        app.buttons["editor.addLine"].tap()
+        tapRevealed(app.buttons["editor.addLine"])
         tapAndType(app.textFields["editor.line.0.label"], text: "Lunch")
         tapAndType(app.textFields["editor.line.0.amount"], text: "30.00")
         for name in ["Ana", "Bo"] {
@@ -245,7 +368,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         captureStoreScreenshot("02-receipts")
         app.buttons["home.snapshot.0"].tap()
         containerExists("snapshot.readonly")
-        app.buttons["snapshot.person.0.expand"].tap()
+        tapRevealed(app.buttons["snapshot.person.0.expand"])
         XCTAssertTrue(revealText("Lunch"))
         captureStoreScreenshot("03-person-totals")
     }
@@ -338,6 +461,15 @@ final class SplitSlipJourneyTests: XCTestCase {
         // gesture. This is outside the app's own non-gesture controls.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
             .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        // The drag-to-dismiss gesture occasionally dismisses the hosting
+        // sheet as well as (or instead of) the picker, landing back on the
+        // home screen instead of staying in "Your data" (run 36270150541:
+        // after the gesture, only home.root was hittable and the follow-up
+        // data.restore reveal timed out). If that happens, re-open the
+        // sheet so the caller's next control lookup still resolves.
+        if app.descendants(matching: .any)["home.root"].exists {
+            app.buttons["home.data"].tap()
+        }
     }
 
     func testLargeTextDarkLayoutAndCanceledFileOperations() throws {
@@ -386,10 +518,10 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(revealText("Appetizer"))
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let delete = app.buttons["home.snapshot.0.delete"]
-        XCTAssertTrue(reveal(delete)); delete.tap()
-        app.alerts.buttons["Keep receipt"].tap()
+        XCTAssertTrue(reveal(delete))
+        confirmationAlert(afterTapping: delete).buttons["Keep receipt"].tap()
         XCTAssertTrue(snapshot.exists)
-        delete.tap(); app.alerts.buttons["Delete receipt"].tap()
+        confirmationAlert(afterTapping: delete).buttons["Delete receipt"].tap()
         app.terminate(); app.launch()
         XCTAssertFalse(app.buttons["home.snapshot.0"].exists)
     }
@@ -403,7 +535,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         openTab("People")
         for name in ["Ana", "Bo"] {
             tapAndType(app.textFields["editor.participantName"], text: name)
-            app.buttons["editor.addParticipant"].tap()
+            tapRevealed(app.buttons["editor.addParticipant"])
         }
         app.buttons["editor.splitEqually"].tap()
         XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
@@ -412,7 +544,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(saved.waitForExistence(timeout: 10)); saved.tap()
         XCTAssertTrue(revealText("6.01"))
         XCTAssertTrue(revealText("6.00"))
-        app.buttons["snapshot.person.0.expand"].tap()
+        tapRevealed(app.buttons["snapshot.person.0.expand"])
         XCTAssertTrue(revealText("Receipt total"))
     }
 
@@ -526,9 +658,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         // Add a person, then a line, split it, and removal must confirm first.
         openTab("People")
         tapAndType(app.textFields["editor.participantName"], text: "Ana")
-        app.buttons["editor.addParticipant"].tap()
+        tapRevealed(app.buttons["editor.addParticipant"])
         openTab("Receipt")
-        app.buttons["editor.addLine"].tap()
+        tapRevealed(app.buttons["editor.addLine"])
         tapAndType(app.textFields["editor.line.0.label"], text: "Food")
         tapAndType(app.textFields["editor.line.0.amount"], text: "5.00")
         let selector = app.switches["editor.line.0.person.Ana"]
