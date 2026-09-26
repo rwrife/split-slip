@@ -210,11 +210,15 @@ final class SplitSlipJourneyTests: XCTestCase {
         // Wait for any pre-action settling (e.g. pop animation), then tap.
         settledTap(trigger)
         if alert.waitForExistence(timeout: 5) { return alert }
-        // If alert hasn't appeared yet, wait briefly and try tapping again if trigger remains hittable.
+        // The first tap can leave the cached XCUIElement non-hittable even
+        // though the same identified row is still visible. Re-query it by
+        // identifier before retrying instead of gating the retry on the stale
+        // handle (run 36268291375 showed no second Tap after the wait).
         usleep(500_000)
         if alert.exists { return alert }
-        if (try? trigger.isHittable) == true {
-            trigger.tap()
+        let retry = app.buttons[trigger.identifier]
+        if reveal(retry, timeout: 6) {
+            settledTap(retry)
         }
         XCTAssertTrue(alert.waitForExistence(timeout: 10),
                       "confirmation alert never appeared for \(trigger.identifier)")
