@@ -207,7 +207,14 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// deterministic without weakening the assertion.
     private func confirmationAlert(afterTapping trigger: XCUIElement) -> XCUIElement {
         let alert = app.alerts.firstMatch
-        // Wait for any pre-action settling (e.g. pop animation), then tap.
+        // Re-reveal before every tap, not just the first. A prior alert's
+        // dismiss animation (e.g. "Keep receipt") can leave the trigger
+        // temporarily non-hittable even though no scroll actually moved it;
+        // `reveal` re-polls hittability (scrolling only if truly needed)
+        // instead of assuming the caller's earlier reveal still holds
+        // (run 36270150541 failed here on the second call with "not
+        // hittable before tap" right after dismissing the first alert).
+        XCTAssertTrue(reveal(trigger), "element \(trigger.identifier) never became hittable")
         settledTap(trigger)
         if alert.waitForExistence(timeout: 5) { return alert }
         // The first tap can leave the cached XCUIElement non-hittable even
@@ -217,8 +224,14 @@ final class SplitSlipJourneyTests: XCTestCase {
         usleep(500_000)
         if alert.exists { return alert }
         let retry = app.buttons[trigger.identifier]
-        if reveal(retry, timeout: 6) {
-            settledTap(retry)
+        if reveal(retry, timeout: 6), retry.exists {
+            // A SwiftUI List control can report `isHittable == false` during
+            // row reconciliation while its frame is still onscreen. Tapping
+            // the frame center bypasses that stale AX hit-test state.
+            let frame = retry.frame
+            let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+                .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+            center.tap()
         }
         XCTAssertTrue(alert.waitForExistence(timeout: 10),
                       "confirmation alert never appeared for \(trigger.identifier)")
@@ -448,6 +461,15 @@ final class SplitSlipJourneyTests: XCTestCase {
         // gesture. This is outside the app's own non-gesture controls.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
             .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        // The drag-to-dismiss gesture occasionally dismisses the hosting
+        // sheet as well as (or instead of) the picker, landing back on the
+        // home screen instead of staying in "Your data" (run 36270150541:
+        // after the gesture, only home.root was hittable and the follow-up
+        // data.restore reveal timed out). If that happens, re-open the
+        // sheet so the caller's next control lookup still resolves.
+        if app.descendants(matching: .any)["home.root"].exists {
+            app.buttons["home.data"].tap()
+        }
     }
 
     func testLargeTextDarkLayoutAndCanceledFileOperations() throws {
