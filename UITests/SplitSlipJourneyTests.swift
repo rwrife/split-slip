@@ -758,4 +758,50 @@ final class SplitSlipJourneyTests: XCTestCase {
                       "removing the reference must restore the picker entry")
         XCTAssertTrue(revealText("Line: Food"), "removing the image must not clear the selection")
     }
+
+    /// Issue #14 architecture gate: native CI can exercise both semantic
+    /// surfaces simultaneously without claiming that the simulator is Duo
+    /// hardware. The launch argument is simulator-only and production keeps
+    /// compact tabs until a public safe-region API exists.
+    func testExplicitDualSurfaceCompositionUsesOneWorkspaceState() throws {
+        let seededID = "00000000-0000-0000-0000-00000000D014"
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchArguments = [
+            "-ui-testing", "-reset-store", "-seed-workspace", seededID,
+            "-ui-testing-dual-surface"
+        ]
+        app.launch()
+        containerExists("home.root")
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root", timeout: 10)
+        containerExists("editor.dualSurface", timeout: 10)
+        containerExists("editor.receiptTab", timeout: 10)
+        containerExists("editor.peopleTab", timeout: 10)
+        XCTAssertFalse(app.tabBars.buttons["Receipt"].exists,
+                       "dual composition must not hide either surface behind tabs")
+
+        // Both surfaces read and write the same model-owned selection.
+        let line = app.buttons["editor.line.0.select"]
+        XCTAssertTrue(line.waitForExistence(timeout: 10))
+        line.tap()
+        let person = app.buttons["editor.person.Ana.select"]
+        XCTAssertTrue(person.waitForExistence(timeout: 10))
+        person.tap()
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Line: Food · Person: Ana")
+        ).firstMatch.waitForExistence(timeout: 10))
+
+        // Relaunch in the ordinary compact layout. Selection survives the
+        // composition transition because it never belonged to the layout.
+        app.terminate()
+        app.launchArguments = ["-ui-testing", "-seed-workspace", seededID]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root", timeout: 10)
+        XCTAssertTrue(app.tabBars.buttons["Receipt"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Line: Food · Person: Ana")
+        ).firstMatch.waitForExistence(timeout: 10))
+    }
 }
