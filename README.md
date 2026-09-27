@@ -4,7 +4,7 @@ Local-first iPhone receipt splitter for shared meals and purchases: assign items
 
 ## Status
 
-**Manual splitting and photo workspace are implemented; sharing, backup/restore, and a refreshed layout are in active verification.** The app includes receipt cards, reviewed text/CSV exports, versioned private folder backups, validated journaled replacement with recovery copies, and confirmed deletion. See [privacy](docs/privacy.md), [support](docs/support.md), and the [release evidence gates](docs/release-checklist.md). Native pinned CI, real-iPhone checks, and signed/processed TestFlight evidence remain required; source implementation is not a release-completion claim. No payments, accounts, OCR, or runtime network features exist.
+**Manual splitting, photo workspace, sharing, and backup/restore are implemented; a refreshed layout is in active verification.** The app includes receipt cards, reviewed text/CSV exports, versioned private folder backups, validated journaled replacement with recovery copies, and confirmed deletion. Exact-head pinned CI on `main` is green (`Pinned iOS CI` run `36275317803`). See [privacy](docs/privacy.md), [support](docs/support.md), [issue #5/#6 evidence](docs/issue-5-6-evidence.md), and the [release evidence gates](docs/release-checklist.md). Real-iPhone VoiceOver/PhotosPicker/share-sheet/Files/offline/termination checks and signed/processed TestFlight evidence remain required and unavailable on headless CI; green simulator CI is not a substitute. No payments, accounts, OCR, or runtime network features exist.
 
 ## Why / who
 

@@ -28,9 +28,15 @@ Host: Xcode **27.0 (27A266a)**, SDK **27.0**. This is supplemental evidence; the
 
 The retained results are local `.xcresult` bundles under `/private/tmp/split-slip-*.xcresult`; these are not committed. The normal-size home screenshot in `docs/screenshots/home-simulator.png` is an actual simulator capture, not a design mockup.
 
+## CI updates, 2026-09-26 (UTC)
+
+- PR #16 (`test: scroll the list element in settled steps for virtualized rows`) merged after exact-head green CI at `47f9aee24d415bfe4b67b336b38378da02402064` (`Pinned iOS CI` run `36271912533`, job `108487861876`).
+- PR #15 (`Include final Xcode signing and app configuration`) was rebased on current main to pick up the merged UI-test fixes, then merged after exact-head green CI at `89e8061059e02139cc279a01d624b89ab67a9d77` (`Pinned iOS CI` run `36273780393`, job `108492507285`).
+- Main now carries both merges and passed exact-head CI at `40ab31f114f1a156bd5964483979351c1fb2ac06` (`Pinned iOS CI` run `36275317803`, job `108496825055`).
+
 ## Still open
 
-Exact-head pinned CI after push; native share completion and additional Files-provider/device coverage (local simulator Files save/delete/restore now passes); actual iPhone VoiceOver/PhotosPicker/Files/offline/termination evaluation; protected release environment; confirmed App Store record/agreements/signing; a signed archive/IPA; and Apple processing evidence. No TestFlight or App Store availability is claimed.
+Real iPhone share/Files/VoiceOver/PhotosPicker/offline/termination evidence remains unavailable on this headless Linux executor, so issue acceptance stays open despite green simulator CI. Release-side blockers also remain: protected `testflight` environment, confirmed App Store record/agreements/signing on Apple hosts, signed archive/IPA generation, and Apple processing evidence. No TestFlight or App Store availability is claimed.
 
 
 ## September 24 usability follow-up
