@@ -249,6 +249,26 @@ final class SplitSlipJourneyTests: XCTestCase {
         commitKeyboard(element)
     }
 
+    /// Replace an existing text-field value without relying on multi-tap text
+    /// selection. Simulator timing can turn a triple-tap into cursor placement,
+    /// appending the new value (for example `20.0030.00`) while the synthesized
+    /// gesture still reports success. Bounded delete keystrokes are independent
+    /// of selection state and exercise the same user-editing path.
+    private func replaceText(_ element: XCUIElement, with text: String) {
+        XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
+        settledTap(element)
+        element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 64))
+        element.typeText(text)
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if element.value as? String == text { break }
+            usleep(200_000)
+        }
+        XCTAssertEqual(element.value as? String, text,
+                       "element \(element.identifier) did not contain the replacement value")
+        commitKeyboard(element)
+    }
+
     private func commitKeyboard(_ element: XCUIElement) {
         // Keyboard toolbar items can surface as non-Button element types;
         // query any element by identifier before falling back to Return.
@@ -379,13 +399,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         freshLaunch()
         buildMismatchedReceipt()
 
-        // Correct the mismatch: retype the printed total as 30.00.
-        // Triple-tap selects the field's current text so typing replaces it.
+        // Correct the mismatch: replace the printed total with 30.00.
         let total = app.textFields["editor.expectedTotal"]
-        XCTAssertTrue(reveal(total), "expected-total field never became hittable")
-        total.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-        total.typeText("30.00")
-        commitKeyboard(total)
+        replaceText(total, with: "30.00")
         XCTAssertTrue(revealText("Rows match the entered total"))
         XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
 
@@ -498,9 +514,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         buildMismatchedReceipt()
         openTab("Receipt")
         let printedTotal = app.textFields["editor.expectedTotal"]
-        XCTAssertTrue(reveal(printedTotal))
-        printedTotal.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-        printedTotal.typeText("30.00"); commitKeyboard(printedTotal)
+        replaceText(printedTotal, with: "30.00")
         openTab("People")
         let amount = app.textFields["editor.person.Ana.amount"]
         XCTAssertTrue(reveal(amount)); tapAndType(amount, text: "10.00")
