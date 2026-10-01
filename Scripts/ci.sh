@@ -51,6 +51,11 @@ fi
 phase="helper_tests"
 python3 -m unittest discover -s Scripts/tests -v 2>&1 | tee "$artifact_dir/helper-tests.log"
 
+phase="permissions_audit"
+# Issue #6: static permissions/entitlements/device-family/offline audit over
+# the real project (shipped sources only). Its own unit tests run above.
+python3 Scripts/permissions_audit.py --root . --report "$artifact_dir/permissions-audit.txt"
+
 phase="toolchain_selection"
 python3 Scripts/select_xcode.py \
   --toolchain toolchain.json \
