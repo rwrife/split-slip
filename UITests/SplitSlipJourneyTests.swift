@@ -249,6 +249,26 @@ final class SplitSlipJourneyTests: XCTestCase {
         commitKeyboard(element)
     }
 
+    /// Replace an existing text-field value without relying on multi-tap text
+    /// selection. Simulator timing can turn a triple-tap into cursor placement,
+    /// appending the new value (for example `20.0030.00`) while the synthesized
+    /// gesture still reports success. Bounded delete keystrokes are independent
+    /// of selection state and exercise the same user-editing path.
+    private func replaceText(_ element: XCUIElement, with text: String) {
+        XCTAssertTrue(reveal(element), "element \(element.identifier) never became hittable")
+        settledTap(element)
+        element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 64))
+        element.typeText(text)
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if element.value as? String == text { break }
+            usleep(200_000)
+        }
+        XCTAssertEqual(element.value as? String, text,
+                       "element \(element.identifier) did not contain the replacement value")
+        commitKeyboard(element)
+    }
+
     private func commitKeyboard(_ element: XCUIElement) {
         // Keyboard toolbar items can surface as non-Button element types;
         // query any element by identifier before falling back to Return.
@@ -379,13 +399,9 @@ final class SplitSlipJourneyTests: XCTestCase {
         freshLaunch()
         buildMismatchedReceipt()
 
-        // Correct the mismatch: retype the printed total as 30.00.
-        // Triple-tap selects the field's current text so typing replaces it.
+        // Correct the mismatch: replace the printed total with 30.00.
         let total = app.textFields["editor.expectedTotal"]
-        XCTAssertTrue(reveal(total), "expected-total field never became hittable")
-        total.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-        total.typeText("30.00")
-        commitKeyboard(total)
+        replaceText(total, with: "30.00")
         XCTAssertTrue(revealText("Rows match the entered total"))
         XCTAssertTrue(app.buttons["editor.finalize"].isEnabled)
 
@@ -498,9 +514,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         buildMismatchedReceipt()
         openTab("Receipt")
         let printedTotal = app.textFields["editor.expectedTotal"]
-        XCTAssertTrue(reveal(printedTotal))
-        printedTotal.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-        printedTotal.typeText("30.00"); commitKeyboard(printedTotal)
+        replaceText(printedTotal, with: "30.00")
         openTab("People")
         let amount = app.textFields["editor.person.Ana.amount"]
         XCTAssertTrue(reveal(amount)); tapAndType(amount, text: "10.00")
@@ -757,5 +771,51 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(app.buttons["editor.reference.pick"]),
                       "removing the reference must restore the picker entry")
         XCTAssertTrue(revealText("Line: Food"), "removing the image must not clear the selection")
+    }
+
+    /// Issue #14 architecture gate: native CI can exercise both semantic
+    /// surfaces simultaneously without claiming that the simulator is Duo
+    /// hardware. The launch argument is simulator-only and production keeps
+    /// compact tabs until a public safe-region API exists.
+    func testExplicitDualSurfaceCompositionUsesOneWorkspaceState() throws {
+        let seededID = "00000000-0000-0000-0000-00000000D014"
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launchArguments = [
+            "-ui-testing", "-reset-store", "-seed-workspace", seededID,
+            "-ui-testing-dual-surface"
+        ]
+        app.launch()
+        containerExists("home.root")
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root", timeout: 10)
+        containerExists("editor.dualSurface", timeout: 10)
+        containerExists("editor.receiptTab", timeout: 10)
+        containerExists("editor.peopleTab", timeout: 10)
+        XCTAssertFalse(app.tabBars.buttons["Receipt"].exists,
+                       "dual composition must not hide either surface behind tabs")
+
+        // Both surfaces read and write the same model-owned selection.
+        let line = app.buttons["editor.line.0.select"]
+        XCTAssertTrue(line.waitForExistence(timeout: 10))
+        line.tap()
+        let person = app.buttons["editor.person.Ana.select"]
+        XCTAssertTrue(person.waitForExistence(timeout: 10))
+        person.tap()
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Line: Food · Person: Ana")
+        ).firstMatch.waitForExistence(timeout: 10))
+
+        // Relaunch in the ordinary compact layout. Selection survives the
+        // composition transition because it never belonged to the layout.
+        app.terminate()
+        app.launchArguments = ["-ui-testing", "-seed-workspace", seededID]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        app.buttons["home.draft.0"].tap()
+        containerExists("editor.root", timeout: 10)
+        XCTAssertTrue(app.tabBars.buttons["Receipt"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Line: Food · Person: Ana")
+        ).firstMatch.waitForExistence(timeout: 10))
     }
 }
