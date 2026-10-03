@@ -61,10 +61,39 @@ xcodebuild -exportArchive -archivePath "$release_dir/SplitSlip.xcarchive" \
   -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
 if [[ "${UPLOAD_TO_TESTFLIGHT:-false}" == true ]]; then
-  ipa_files=("$release_dir"/export/*.ipa)
-  [[ ${#ipa_files[@]} == 1 && -f "${ipa_files[0]}" ]] || { echo 'Expected one exported IPA' >&2; exit 1; }
-  xcrun altool --upload-app -f "${ipa_files[0]}" --type ios \
-    --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" \
-    --output-format json > "$release_dir/upload-response.json"
+  # NOTE: Apple removed `altool` in Xcode 26, so the pinned toolchain
+  # cannot provide it. Upload through xcodebuild itself with an
+  # upload-destination export (App Store Connect API authentication,
+  # no fastlane dependency). The release-hygiene tests fail the repo
+  # if the legacy tool ever returns here.
+  python3 - "$release_dir" <<'PY'
+import os, pathlib, plistlib, sys
+root = pathlib.Path(sys.argv[1])
+options = {'method': 'app-store-connect', 'destination': 'upload',
+           'uploadMethod': 'app-store-connect', 'signingStyle': 'automatic',
+           'teamID': os.environ['ASC_TEAM_ID'], 'manageAppVersionAndBuildNumber': False}
+with (root / 'UploadOptions.plist').open('wb') as f:
+    plistlib.dump(options, f)
+PY
+  set +e
+  xcodebuild -exportArchive -archivePath "$release_dir/SplitSlip.xcarchive" \
+    -exportPath "$release_dir/upload-export" -exportOptionsPlist "$release_dir/UploadOptions.plist" \
+    -allowProvisioningUpdates -authenticationKeyPath "$key_file" \
+    -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+    > "$release_dir/upload-attempt.log" 2>&1
+  upload_status=$?
+  set -e
+  python3 - "$release_dir" "$upload_status" <<'PY'
+import json, pathlib, sys
+root, status = pathlib.Path(sys.argv[1]), int(sys.argv[2])
+(root / 'upload-response.json').write_text(json.dumps({
+    'uploaded': status == 0,
+    'exitStatus': status,
+    'note': 'xcodebuild upload-export attempt result only. Apple processing is a '
+            'separate gate: record the real Apple build identifier from App Store '
+            'Connect before claiming TestFlight availability.',
+}, indent=2))
+PY
+  [[ $upload_status -eq 0 ]] || { echo "Upload export failed with status $upload_status; see upload-attempt.log" >&2; exit "$upload_status"; }
   echo 'Upload request completed. Verify Apple processing and record the real build ID before claiming TestFlight availability.'
 fi
