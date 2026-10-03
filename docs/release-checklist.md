@@ -6,6 +6,8 @@ Do not close the release issues based on source code or a successful simulator b
 
 `.github/workflows/release.yml` is manually dispatched from main. It checks that the `testflight` environment exists and has required reviewers, requires a device/CI evidence URL, runs exact-SHA pinned native CI, then invokes `Scripts/release.sh`. The script uses the four existing `ASC_*` repository secrets, creates a private temporary API-key file with cleanup, verifies the pinned toolchain, archives, verifies the signature, bundle ID, and `UIDeviceFamily == [1]`, and exports an IPA with provenance. Upload is an explicit input defaulting to false. No workflow submits to public App Store review.
 
+Upload (when enabled) goes through `xcodebuild -exportArchive` with an upload-destination `ExportOptions.plist`, not `altool` — Apple removed `altool` in Xcode 26, so the pinned 26.0.1 toolchain has no legacy upload tool. `Scripts/tests/test_release_hygiene.py` (11 static tests, run in every CI helper phase) fails the repo if `altool` returns to the release path, if secrets could be echoed, if the key file loses its private-dir/EXIT-cleanup/`unset` discipline, or if the workflow loses manual-dispatch-only triggers, read-only permissions, the protected `testflight` environment, secrets scoped to the environment job, or the upload-defaults-to-false input. These are static repository-posture proofs only.
+
 A configured key is not proof of certificate/profile permissions. GitHub environment access, App Store agreements, signing assets, and an app record must be verified by the account owner. Missing protection or unavailable exact Xcode pin fails the workflow. An upload response is not proof that Apple processing finished.
 
 ## Still required before release

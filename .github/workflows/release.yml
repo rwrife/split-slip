@@ -76,5 +76,6 @@ jobs:
             build/release/export/*.ipa
             build/release/provenance.json
             build/release/upload-response.json
+            build/release/upload-attempt.log
           if-no-files-found: warn
           retention-days: 14
