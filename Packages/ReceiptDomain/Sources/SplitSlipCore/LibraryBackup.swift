@@ -1,5 +1,28 @@
 import Foundation
 import ReceiptDomain
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
+private func readRegularBackupFile(_ url: URL, limit: Int, directoryFD: Int32? = nil) throws -> Data {
+    // Check the descriptor, not just the enumerated path: provider files may
+    // change between listing and reading. O_NOFOLLOW rejects a swapped link.
+    // For imported folders openat pins the original root even if its path moves.
+    let fd = directoryFD.map { openat($0, url.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) }
+        ?? open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    guard fd >= 0 else { throw LibraryError.invalid("Backup file cannot be opened safely.") }
+    let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    var info = stat()
+    guard fstat(fd, &info) == 0, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+          info.st_nlink == 1, info.st_size >= 0, info.st_size <= limit else {
+        throw LibraryError.invalid("Backup contains a link, directory, or oversized file.")
+    }
+    let data = try handle.read(upToCount: limit + 1) ?? Data()
+    guard data.count <= limit else { throw LibraryError.invalid("Backup file grew beyond its limit.") }
+    return data
+}
 
 /// Flat, bounded folder format: no archive extraction and no caller-provided paths.
 public struct LibraryBackup: Sendable {
@@ -69,24 +92,28 @@ public struct LibraryBackup: Sendable {
     }
 
     public static func read(from folder: URL) throws -> LibraryBackup {
-        let keys: Set<URLResourceKey> = [.isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey, .fileSizeKey]
+        let keys: Set<URLResourceKey> = [.isSymbolicLinkKey, .isDirectoryKey]
         let root = try folder.resourceValues(forKeys: keys)
         guard root.isDirectory == true, root.isSymbolicLink != true else { throw LibraryError.invalid("Choose a backup folder, not a link.") }
-        let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: Array(keys))
+        let rootFD = open(folder.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard rootFD >= 0 else { throw LibraryError.invalid("Backup folder cannot be opened safely.") }
+        defer { _ = close(rootFD) }
+        let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        var rootInfo = stat(), pathInfo = stat()
+        guard fstat(rootFD, &rootInfo) == 0, lstat(folder.path, &pathInfo) == 0,
+              rootInfo.st_dev == pathInfo.st_dev, rootInfo.st_ino == pathInfo.st_ino else {
+            throw LibraryError.invalid("Backup folder changed while reading.")
+        }
         guard children.count <= 1_002 else { throw LibraryError.invalid("Too many backup files.") }
         var files: [String: Data] = [:], total = 0
         for child in children {
-            let attributes = try child.resourceValues(forKeys: keys)
+            // Do not trust path metadata after enumeration. The descriptor
+            // check in `readRegularBackupFile` is authoritative and rejects
+            // links, directories and oversized files at read time.
             let limit = child.pathExtension == "json" ? maximumJSONBytes : ReferenceImageLimits.maximumEncodedBytes
-            guard attributes.isRegularFile == true, attributes.isSymbolicLink != true,
-                  let size = attributes.fileSize, size <= limit else { throw LibraryError.invalid("Backup contains a link, directory, or oversized file.") }
-            total += size
+            let data = try readRegularBackupFile(child, limit: limit, directoryFD: rootFD)
+            total += data.count
             guard total <= maximumBytes else { throw LibraryError.invalid("Backup exceeds 100 MB.") }
-            // Bound reads as well as checking metadata (a provider can change a file).
-            let handle = try FileHandle(forReadingFrom: child)
-            defer { try? handle.close() }
-            let data = try handle.read(upToCount: limit + 1) ?? Data()
-            guard data.count <= limit else { throw LibraryError.invalid("Backup file grew beyond its limit.") }
             files[child.lastPathComponent] = data
         }
         return try decode(files: files)
@@ -138,7 +165,9 @@ public final class LibraryTransfer {
                 guard totalBytes <= LibraryBackup.maximumBytes - LibraryBackup.maximumJSONBytes else {
                     throw LibraryError.invalid("The image collection exceeds the backup size limit.")
                 }
-                let sanitized = try ReferenceImageSandbox.sanitize(Data(contentsOf: url)).jpeg
+                let sanitized = try ReferenceImageSandbox.sanitize(
+                    readRegularBackupFile(url, limit: ReferenceImageLimits.maximumEncodedBytes)
+                ).jpeg
                 totalBytes += sanitized.count - (attributes.fileSize ?? 0)
                 guard totalBytes <= LibraryBackup.maximumBytes - LibraryBackup.maximumJSONBytes else {
                     throw LibraryError.invalid("Decoded images exceed the backup size limit.")

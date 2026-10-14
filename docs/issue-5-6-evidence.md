@@ -34,6 +34,20 @@ The retained results are local `.xcresult` bundles under `/private/tmp/split-sli
 - PR #15 (`Include final Xcode signing and app configuration`) was rebased on current main to pick up the merged UI-test fixes, then merged after exact-head green CI at `89e8061059e02139cc279a01d624b89ab67a9d77` (`Pinned iOS CI` run `36273780393`, job `108492507285`).
 - Main now carries both merges and passed exact-head CI at `40ab31f114f1a156bd5964483979351c1fb2ac06` (`Pinned iOS CI` run `36275317803`, job `108496825055`).
 
+## Backup import hardening, 2026-10-14 (UTC)
+
+`LibraryBackup.read(from:)` and the backup image read path no longer trust a
+path-only precheck. Each imported child is reopened through `openat(rootFD, …,
+O_NOFOLLOW)` against the descriptor of the originally selected folder, and the
+kernel-reported descriptor is rechecked as a regular file with exactly one hard
+link before any bytes are read. This rejects symlink swaps, hard-link
+smuggling, directories, and oversized files even if a Files provider changes
+the folder between enumeration and reading. New unit test
+`rejectsHardLinksBeforeBackupRead` proves the hard-link case; existing symlink/
+oversized/traversal tests remain green (13 backup-suite tests on Linux Swift
+6.2, supplementary unit tier). Native device behavior with a real cloud Files
+provider remains an open device gate.
+
 ## Still open
 
 Real iPhone share/Files/VoiceOver/PhotosPicker/offline/termination evidence remains unavailable on this headless Linux executor, so issue acceptance stays open despite green simulator CI. Release-side blockers also remain: protected `testflight` environment, confirmed App Store record/agreements/signing on Apple hosts, signed archive/IPA generation, and Apple processing evidence. No TestFlight or App Store availability is claimed.
