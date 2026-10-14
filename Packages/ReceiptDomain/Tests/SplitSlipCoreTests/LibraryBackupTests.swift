@@ -97,6 +97,17 @@ struct LibraryBackupTests {
         #expect(throws: (any Error).self) { try LibraryBackup.read(from: root) }
     }
 
+    @Test func rejectsHardLinksBeforeBackupRead() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try LibraryBackup(library: ReceiptLibrary()).write(to: root)
+        let receipts = root.appendingPathComponent("receipts.json")
+        let other = root.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: other) }
+        try FileManager.default.linkItem(at: receipts, to: other)
+        #expect(throws: (any Error).self) { try LibraryBackup.read(from: root) }
+    }
+
     @MainActor @Test func restoreDeleteAndPreRestoreCopy() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
