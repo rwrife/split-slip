@@ -77,6 +77,17 @@ struct MoneyParsingTests {
         }
         #expect((try? MinorAmount(minorUnits: -50).validated()) != nil)
     }
+
+    @Test("Int64.min never traps during validation, formatting, or allocation")
+    func minimumIntegerBoundary() {
+        let minimum = MinorAmount(minorUnits: .min)
+        #expect(minimum.description == "-92233720368547758.08")
+        #expect(throws: MoneyParseError.exceedsReceiptTotalBound(minorUnitsMagnitude: .max)) { try minimum.validated() }
+        let recipient = ParticipantIdentity(id: UUID(), displayName: "Ann")
+        #expect(throws: AllocationError.amountOutOfBounds(minorUnitsMagnitude: .max)) {
+            _ = try AllocationEngine.allocate(amount: minimum, to: [(recipient, 1)])
+        }
+    }
 }
 
 @Suite("Issue 2 allocation")
