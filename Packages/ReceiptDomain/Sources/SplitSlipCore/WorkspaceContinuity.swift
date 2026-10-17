@@ -1,5 +1,41 @@
 import Foundation
 
+/// The two independent workspace surfaces described by the product contract.
+/// These are semantic surfaces, not physical displays or inferred panes.
+public enum ReceiptWorkspaceSurface: String, Codable, CaseIterable, Sendable {
+    case receiptReference
+    case peopleAllocations
+}
+
+/// Layout input supplied by a platform adapter. Split Slip deliberately does
+/// not derive this value from window width, device names, hinge guesses, or
+/// iPad traits. The shipping default remains `compact`; a future public API
+/// may explicitly supply `dualSurface` when two safe regions are available.
+public struct ReceiptWorkspaceLayout: Equatable, Sendable {
+    public enum Presentation: String, Sendable {
+        case compactTabs
+        case dualSurface
+    }
+
+    public let presentation: Presentation
+    public let surfaces: [ReceiptWorkspaceSurface]
+
+    public static let compact = ReceiptWorkspaceLayout(
+        presentation: .compactTabs,
+        surfaces: [.receiptReference, .peopleAllocations]
+    )
+
+    public static let dualSurface = ReceiptWorkspaceLayout(
+        presentation: .dualSurface,
+        surfaces: [.receiptReference, .peopleAllocations]
+    )
+
+    private init(presentation: Presentation, surfaces: [ReceiptWorkspaceSurface]) {
+        self.presentation = presentation
+        self.surfaces = surfaces
+    }
+}
+
 /// What the workspace must remember for one receipt: which tab was open,
 /// the selected line/adjustment and person, and the reference-image viewport
 /// (issue #4: preserved through navigation, relaunch and rotation).
