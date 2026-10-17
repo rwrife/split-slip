@@ -34,7 +34,9 @@ public struct MinorAmount: Hashable, Sendable, Codable, Comparable, CustomString
     public static let zero = MinorAmount(minorUnits: 0)
 
     public var isNegative: Bool { minorUnits < 0 }
-    public var magnitude: Int64 { abs(minorUnits) }
+    // ponytail: Int64.min has no positive Int64 magnitude; saturate solely for
+    // bound checks. Use UInt64.magnitude if values beyond receipt bounds matter.
+    public var magnitude: Int64 { minorUnits == .min ? .max : abs(minorUnits) }
 
     /// Strict decimal-string parse into minor units. Accepted grammar:
     /// an optional single leading `-`, an integer part of `0` or a
@@ -164,7 +166,8 @@ public struct MinorAmount: Hashable, Sendable, Codable, Comparable, CustomString
 
     public var description: String {
         let sign = minorUnits < 0 ? "-" : ""
-        let magnitude = abs(minorUnits)
-        return String(format: "%@%lld.%02lld", sign, magnitude / 100, magnitude % 100)
+        // UInt64 magnitude: abs(Int64.min) would trap.
+        let magnitude = minorUnits.magnitude
+        return String(format: "%@%llu.%02llu", sign, magnitude / 100, magnitude % 100)
     }
 }
