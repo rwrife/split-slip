@@ -10,6 +10,7 @@ from unittest import mock
 
 from Scripts.select_simulator import (
     DestinationError,
+    configured_timeout,
     enumerate_available_devices,
     select_destination,
 )
@@ -99,6 +100,15 @@ class EnumerationTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             enumerate_available_devices(runner=runner, timeout=5)
         self.assertEqual(len(calls), 1)
+
+    def test_default_bound_absorbs_slow_first_enumeration(self):
+        """Regression for run 39028436715 attempts 1-2 (ec55f79).
+
+        Fresh hosted runners enumerated for >30 s after a platform download;
+        the old 30 s default failed both attempts and reddened main CI. The
+        default per-attempt bound must keep absorbing that first-boot stall.
+        """
+        self.assertGreaterEqual(configured_timeout(), 90)
 
     def test_cli_recovers_and_flushes_devices_json_after_stall(self):
         """Subprocess-level regression for the wedged-enumeration path.

@@ -9,7 +9,11 @@ import os
 import subprocess
 import sys
 
-DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_TIMEOUT_SECONDS = 90
+"""First bound is generous: fresh hosted runners wedge CoreSimulator during
+first enumeration after a fresh platform download; a 30 s bound turned that
+into red CI at ec55f79 attempts 1-2 (2026-10-17/18)."""
+
 
 
 class DestinationError(ValueError):
