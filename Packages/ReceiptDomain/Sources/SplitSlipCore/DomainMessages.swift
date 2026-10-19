@@ -45,6 +45,8 @@ public enum DomainMessages {
             return "Too many participants (\(count), limit \(ReceiptLimits.maximumParticipantsPerReceipt))."
         case let .duplicateParticipant(id):
             return "Duplicate participant (\(id))."
+        case let .duplicateAllocationRecipient(id):
+            return "A row assigns the same person twice (\(id))."
         case .emptyReceipt:
             return "Add at least one line or adjustment."
         case .emptyLineLabel:

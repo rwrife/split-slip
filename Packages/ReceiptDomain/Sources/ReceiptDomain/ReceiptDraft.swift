@@ -7,6 +7,7 @@ public enum ReceiptValidationError: Error, Hashable, Sendable {
     case tooManyAdjustments(count: Int)
     case tooManyParticipants(count: Int)
     case duplicateParticipant(UUID)
+    case duplicateAllocationRecipient(UUID)
     case emptyReceipt
     case emptyLineLabel
     case lineAmountNegative
@@ -165,9 +166,16 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
         // finalization refuses it explicitly. Structural checks below only
         // apply to shares that are present.
         let range = ReceiptLimits.minimumShareWeight...ReceiptLimits.maximumShareWeight
+        var seen = Set<UUID>()
         for share in allocation.shares {
             guard known.contains(share.participantID) else {
                 throw ReceiptValidationError.unknownAllocationParticipant(share.participantID)
+            }
+            // The same person listed twice on one row would double-count
+            // their weight while finalization's per-person accumulation
+            // overwrites their share, silently losing the other half.
+            guard seen.insert(share.participantID).inserted else {
+                throw ReceiptValidationError.duplicateAllocationRecipient(share.participantID)
             }
             guard range.contains(share.weight) else {
                 throw ReceiptValidationError.weightOutOfRange(participant: share.participantID, weight: share.weight)
