@@ -255,6 +255,21 @@ struct FinalizationTests {
         #expect(throws: ReceiptValidationError.adjustmentAmountZero) { try zeroAdjustment.validated() }
     }
 
+    @Test("Duplicate recipient cannot create a finalized share with a missing half")
+    func duplicateRecipientRefused() throws {
+        let present = person("Ann", 1)
+        let line = ReceiptLine(label: "X", amount: MinorAmount(minorUnits: 100))
+        let draft = ReceiptDraft(expectedTotal: MinorAmount(minorUnits: 100),
+            participants: [present], lines: [line], lineAllocations: [line.id: RowAllocation(shares: [
+                .init(participantID: present.id, weight: 1),
+                .init(participantID: present.id, weight: 1),
+            ])])
+        #expect(throws: ReceiptValidationError.duplicateAllocationRecipient(present.id)) { try draft.validated() }
+        #expect(throws: FinalizationError.invalidStructure(.duplicateAllocationRecipient(present.id))) {
+            _ = try draft.finalize()
+        }
+    }
+
     @Test("Allocations referencing unknown participants or bad weights refuse")
     func allocationIntegrity() throws {
         let present = person("Ann", 1)
