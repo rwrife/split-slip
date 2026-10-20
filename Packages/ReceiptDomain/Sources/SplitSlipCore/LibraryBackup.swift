@@ -76,6 +76,10 @@ public struct LibraryBackup: Sendable {
         guard Set(files.keys) == expected else { throw LibraryError.invalid("Unexpected, missing, or unsafe backup files.") }
         let library = try JSONDecoder().decode(ReceiptLibrary.self, from: receipts)
         try library.validate()
+        let requiresRule2 = library.drafts.contains { $0.receiptSplit != nil } || library.snapshots.contains { $0.receiptSplit != nil }
+        guard (manifest.algorithm.allocationRule == 2) == requiresRule2 else {
+            throw LibraryError.invalid("The split method does not match the backup manifest allocation version.")
+        }
         var images: [UUID: Data] = [:]
         var decodedBytes = receipts.count + manifestData.count
         for id in manifest.imageReceiptIDs {
