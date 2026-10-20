@@ -45,6 +45,26 @@ struct LibraryBackupTests {
         #expect(loaded.library.snapshots == [snapshot])
     }
 
+    @Test func rejectsManifestRuleThatDisagreesWithReceiptData() throws {
+        let people = [ParticipantIdentity(displayName: "Ana"), ParticipantIdentity(displayName: "Ben")]
+        let line = ReceiptLine(label: "Total", amount: MinorAmount(minorUnits: 101))
+        let draft = ReceiptDraft(expectedTotal: line.amount, participants: people, lines: [line], receiptSplit: [:])
+        let snapshot = try draft.finalize()
+        var files = try LibraryBackup(library: ReceiptLibrary(drafts: [draft], snapshots: [snapshot])).files()
+        // An imported manifest must not claim the legacy item-split rule for
+        // receipt-wide splits (or claim rule 2 for a rule-1-only library).
+        let manifest = String(decoding: files["manifest.json"]!, as: UTF8.self)
+        #expect(manifest.contains("\"allocationRule\":2"))
+        files["manifest.json"] = Data(manifest.replacingOccurrences(of: "\"allocationRule\":2", with: "\"allocationRule\":1").utf8)
+        #expect(throws: (any Error).self) { try LibraryBackup.decode(files: files) }
+
+        files = try LibraryBackup(library: ReceiptLibrary(drafts: [ReceiptDraft()])).files()
+        let legacy = String(decoding: files["manifest.json"]!, as: UTF8.self)
+        #expect(legacy.contains("\"allocationRule\":1"))
+        files["manifest.json"] = Data(legacy.replacingOccurrences(of: "\"allocationRule\":1", with: "\"allocationRule\":2").utf8)
+        #expect(throws: (any Error).self) { try LibraryBackup.decode(files: files) }
+    }
+
     @Test func rejectsTraversalVersionsAndCurrency() throws {
         let backup = try LibraryBackup(library: ReceiptLibrary(drafts: [ReceiptDraft()]))
         var files = try backup.files()
