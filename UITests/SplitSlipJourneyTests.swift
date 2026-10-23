@@ -50,13 +50,11 @@ final class SplitSlipJourneyTests: XCTestCase {
     private func scrollUntil(timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
         if condition() { return true }
         // Several Lists can remain in the AX hierarchy after navigation or
-        // behind a sheet. Select the front, hittable collection rather than
-        // firstMatch: run 36047714152 proved firstMatch can resolve to the
-        // covered home.root List while the Your Data sheet is visible.
-        // (`hittable` is unsupported inside an XCUITest NSPredicate, so
-        // inspect the bounded elements directly.)
+        // behind a sheet. Select the frontmost hittable collection (last in
+        // z-order, e.g. a sheet presented over home.root) rather than the
+        // firstMatch/first background element.
         func visibleList() -> XCUIElement? {
-            app.collectionViews.allElementsBoundByIndex.first {
+            app.collectionViews.allElementsBoundByIndex.reversed().first {
                 (try? $0.isHittable) == true
             }
         }
@@ -493,11 +491,7 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(backup)); backup.tap()
         cancelFilePicker()
         let restore = app.buttons["data.restore"]
-        XCTAssertTrue(restore.waitForExistence(timeout: 5),
-                      "Restore missing after picker dismissal. AX: \(app.debugDescription)")
-        XCTAssertTrue(reveal(restore),
-                      "Restore not hittable after scroll. AX: \(app.debugDescription)")
-        restore.tap()
+        XCTAssertTrue(reveal(restore)); restore.tap()
         cancelFilePicker()
         app.buttons["Done"].tap()
         app.buttons["home.newReceiptToolbar"].tap()
