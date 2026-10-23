@@ -47,7 +47,7 @@ final class SplitSlipJourneyTests: XCTestCase {
     /// ~content-scroll without momentum, so every row passes through the
     /// viewport slowly enough for virtualization to register it.
     @discardableResult
-    private func scrollUntil(timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
+    private func scrollUntil(timeout: TimeInterval = 12, rewind: Bool = true, _ condition: () -> Bool) -> Bool {
         if condition() { return true }
         // Several Lists can remain in the AX hierarchy after navigation or
         // behind a sheet. Select the frontmost hittable collection (last in
@@ -67,11 +67,15 @@ final class SplitSlipJourneyTests: XCTestCase {
 
         // Rewind in bounded steps, reacquiring each swipe: the original
         // element can vanish (e.g. sheet transitions) and index-backed
-        // queries then fail on the next gesture.
-        for _ in 0..<3 {
-            guard let rewindList = visibleList(), rewindList.exists else { break }
-            rewindList.swipeDown()
-            usleep(150_000)
+        // queries then fail on the next gesture. On presented modal sheets,
+        // downward swipes at the top offset invoke interactive dismissal;
+        // callers seeking downstream rows on a sheet can pass rewind: false.
+        if rewind {
+            for _ in 0..<3 {
+                guard let rewindList = visibleList(), rewindList.exists else { break }
+                rewindList.swipeDown()
+                usleep(150_000)
+            }
         }
 
         let window = app.frame
@@ -491,7 +495,11 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(backup)); backup.tap()
         cancelFilePicker()
         let restore = app.buttons["data.restore"]
-        XCTAssertTrue(reveal(restore)); restore.tap()
+        // The backup row sits directly above restore. Rewinding the sheet
+        // with swipeDown at its top offset can dismiss the entire sheet.
+        XCTAssertTrue(scrollUntil(rewind: false) { (try? restore.isHittable) == true },
+                      "Restore did not become hittable. AX: \(app.debugDescription)")
+        restore.tap()
         cancelFilePicker()
         app.buttons["Done"].tap()
         app.buttons["home.newReceiptToolbar"].tap()
