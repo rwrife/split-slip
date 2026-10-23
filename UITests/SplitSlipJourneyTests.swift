@@ -493,7 +493,11 @@ final class SplitSlipJourneyTests: XCTestCase {
         XCTAssertTrue(reveal(backup)); backup.tap()
         cancelFilePicker()
         let restore = app.buttons["data.restore"]
-        XCTAssertTrue(reveal(restore)); restore.tap()
+        XCTAssertTrue(restore.waitForExistence(timeout: 5),
+                      "Restore missing after picker dismissal. AX: \(app.debugDescription)")
+        XCTAssertTrue(reveal(restore),
+                      "Restore not hittable after scroll. AX: \(app.debugDescription)")
+        restore.tap()
         cancelFilePicker()
         app.buttons["Done"].tap()
         app.buttons["home.newReceiptToolbar"].tap()
