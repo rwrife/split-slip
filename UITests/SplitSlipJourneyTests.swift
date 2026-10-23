@@ -451,24 +451,34 @@ final class SplitSlipJourneyTests: XCTestCase {
 
     private func cancelFilePicker() {
         let cancel = app.buttons["Cancel"].firstMatch
-        if cancel.waitForExistence(timeout: 2) { cancel.tap(); return }
-        let browse = app.buttons["Browse"].firstMatch
-        if browse.exists { browse.tap() }
-        if cancel.waitForExistence(timeout: 2) { cancel.tap(); return }
-        let close = app.buttons["Close"].firstMatch
-        if close.exists { close.tap(); return }
-        // Some system Files sheets expose dismissal through the native sheet
-        // gesture. This is outside the app's own non-gesture controls.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
-            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
-        // The drag-to-dismiss gesture occasionally dismisses the hosting
-        // sheet as well as (or instead of) the picker, landing back on the
-        // home screen instead of staying in "Your data" (run 36270150541:
-        // after the gesture, only home.root was hittable and the follow-up
-        // data.restore reveal timed out). If that happens, re-open the
-        // sheet so the caller's next control lookup still resolves.
-        if app.descendants(matching: .any)["home.root"].exists {
-            app.buttons["home.data"].tap()
+        if cancel.waitForExistence(timeout: 2) {
+            cancel.tap()
+        } else {
+            let browse = app.buttons["Browse"].firstMatch
+            if browse.exists { browse.tap() }
+            if cancel.waitForExistence(timeout: 2) {
+                cancel.tap()
+            } else {
+                let close = app.buttons["Close"].firstMatch
+                if close.exists {
+                    close.tap()
+                } else {
+                    // System Files UI may expose only a native dismissal gesture.
+                    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
+                        .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+                }
+            }
+        }
+        // Files can dismiss its hosting sheet too. home.root remains in the
+        // AX tree behind sheets, so its existence alone is not a safe signal.
+        // Run 39408417306 tapped home.data at hit point {-1, -1} during the
+        // transition, then timed out looking for data.restore.
+        let backup = app.buttons["data.backup"]
+        if !pollHittable(backup, seconds: 5) {
+            let reopen = app.buttons["home.data"]
+            XCTAssertTrue(pollHittable(reopen, seconds: 5), "Neither Your data nor its home button is hittable after Files dismissal")
+            reopen.tap()
+            XCTAssertTrue(pollHittable(backup, seconds: 5), "Your data did not reopen after Files dismissal")
         }
     }
 
