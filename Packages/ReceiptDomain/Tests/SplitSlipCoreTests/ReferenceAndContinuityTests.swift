@@ -153,6 +153,29 @@ struct ReferenceImageSandboxTests {
 
 @Suite("Issue 4 workspace continuity")
 struct WorkspaceContinuityTests {
+    @Test("layout describes semantic surfaces without owning selection state")
+    func layoutContract() {
+        #expect(ReceiptWorkspaceLayout.compact.presentation == .compactTabs)
+        #expect(ReceiptWorkspaceLayout.dualSurface.presentation == .dualSurface)
+        #expect(ReceiptWorkspaceLayout.compact.surfaces == [
+            .receiptReference, .peopleAllocations
+        ])
+        #expect(ReceiptWorkspaceLayout.dualSurface.surfaces ==
+                ReceiptWorkspaceLayout.compact.surfaces)
+
+        let selection = WorkspaceSelection(
+            tab: .people,
+            selectedRowID: UUID(),
+            selectedParticipantID: UUID(),
+            referenceZoom: 2.5,
+            referenceOffsetX: 40,
+            referenceOffsetY: -40
+        )
+        // Layout is an input to composition, not a source of workspace state.
+        #expect(selection.tab == .people)
+        #expect(selection.referenceZoom == 2.5)
+    }
+
     @Test("selection normalizes out-of-range viewport values instead of trusting them")
     func normalization() {
         let damaged = WorkspaceSelection(
