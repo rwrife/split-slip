@@ -48,6 +48,19 @@ oversized/traversal tests remain green (13 backup-suite tests on Linux Swift
 6.2, supplementary unit tier). Native device behavior with a real cloud Files
 provider remains an open device gate.
 
+## Backup image sanitization boundary, 2026-10-26 (UTC)
+
+`LibraryBackup.init` now runs every programmatically supplied image through
+the same `ReferenceImageSandbox.sanitize` boundary as folder imports. A caller
+can no longer write metadata-bearing, non-JPEG, empty, or corrupt bytes
+directly into backup files or recovery folders; oversized totals are still
+rejected before any file is written. New test
+`programmaticBackupSanitizesImagesBeforeWriting` proves EXIF/GPS marker removal,
+JPEG output, and rejection of non-image payloads (102 Swift tests on Linux
+Swift 6.2, supplementary unit tier; native pinned CI re-runs the same suite on
+the Apple runner). Real-device share/Files evidence remains open, so this
+change refs rather than closes #5.
+
 ## Still open
 
 Real iPhone share/Files/VoiceOver/PhotosPicker/offline/termination evidence remains unavailable on this headless Linux executor, so issue acceptance stays open despite green simulator CI. Release-side blockers also remain: protected `testflight` environment, confirmed App Store record/agreements/signing on Apple hosts, signed archive/IPA generation, and Apple processing evidence. No TestFlight or App Store availability is claimed.
