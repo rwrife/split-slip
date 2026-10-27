@@ -61,6 +61,19 @@ Swift 6.2, supplementary unit tier; native pinned CI re-runs the same suite on
 the Apple runner). Real-device share/Files evidence remains open, so this
 change refs rather than closes #5.
 
+## Backup import non-blocking file boundary, 2026-10-27 (UTC)
+
+`readRegularBackupFile` now passes `O_NONBLOCK` alongside `O_NOFOLLOW | O_CLOEXEC`
+when acquiring candidate backup files (via `openat` from the pinned folder root
+or direct `open`). An attacker-supplied named pipe (FIFO) placed inside a
+selected backup folder now fails immediately during read/open rather than
+hanging the process indefinitely waiting for an external writer before `fstat`
+can reject the non-regular file type. Added regression test
+`rejectsFIFOWithoutWaitingForWriter` in `LibraryBackupTests` (103 Swift tests
+on Linux Swift 6.2, supplementary unit tier; native pinned CI re-runs the same
+suite on the Apple runner). Real iPhone share/Files evidence remains open, so
+this change refs rather than closes #5.
+
 ## Still open
 
 Real iPhone share/Files/VoiceOver/PhotosPicker/offline/termination evidence remains unavailable on this headless Linux executor, so issue acceptance stays open despite green simulator CI. Release-side blockers also remain: protected `testflight` environment, confirmed App Store record/agreements/signing on Apple hosts, signed archive/IPA generation, and Apple processing evidence. No TestFlight or App Store availability is claimed.

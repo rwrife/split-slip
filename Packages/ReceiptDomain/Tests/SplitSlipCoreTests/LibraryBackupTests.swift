@@ -1,7 +1,14 @@
 import Foundation
 import Testing
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import ReceiptDomain
 @testable import SplitSlipCore
+
+// POSIX FIFO import regression: opening before fstat must never wait for a writer.
 
 private func reviewedReceipt(name: String = "Ana") throws -> FinalizedReceiptSnapshot {
     let people = [ParticipantIdentity(displayName: name), ParticipantIdentity(displayName: "Ben")]
@@ -133,6 +140,15 @@ struct LibraryBackupTests {
         FileManager.default.createFile(atPath: root.appendingPathComponent("receipts.json").path, contents: nil)
         let handle = try FileHandle(forWritingTo: root.appendingPathComponent("receipts.json"))
         try handle.truncate(atOffset: UInt64(LibraryBackup.maximumJSONBytes + 1)); try handle.close()
+        #expect(throws: (any Error).self) { try LibraryBackup.read(from: root) }
+    }
+
+    @Test func rejectsFIFOWithoutWaitingForWriter() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try LibraryBackup(library: ReceiptLibrary()).write(to: root)
+        let path = root.appendingPathComponent("trap.jpg").path
+        #expect(mkfifo(path, 0o600) == 0)
         #expect(throws: (any Error).self) { try LibraryBackup.read(from: root) }
     }
 

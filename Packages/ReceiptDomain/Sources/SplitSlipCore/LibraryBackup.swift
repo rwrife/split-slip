@@ -9,9 +9,12 @@ import Glibc
 private func readRegularBackupFile(_ url: URL, limit: Int, directoryFD: Int32? = nil) throws -> Data {
     // Check the descriptor, not just the enumerated path: provider files may
     // change between listing and reading. O_NOFOLLOW rejects a swapped link.
+    // O_NONBLOCK prevents an attacker-supplied FIFO from waiting for a writer
+    // before fstat can reject it; regular files still read normally.
     // For imported folders openat pins the original root even if its path moves.
-    let fd = directoryFD.map { openat($0, url.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) }
-        ?? open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+    let fd = directoryFD.map { openat($0, url.lastPathComponent, flags) }
+        ?? open(url.path, flags)
     guard fd >= 0 else { throw LibraryError.invalid("Backup file cannot be opened safely.") }
     let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     var info = stat()
