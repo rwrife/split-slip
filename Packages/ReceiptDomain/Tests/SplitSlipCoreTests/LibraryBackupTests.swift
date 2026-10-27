@@ -37,6 +37,25 @@ struct LibraryBackupTests {
         #expect(csv.hasSuffix("\r\n"))
     }
 
+    @Test func programmaticBackupSanitizesImagesBeforeWriting() throws {
+        let draft = ReceiptDraft()
+        #if canImport(ImageIO)
+        let input = try makeImportableJPEG()
+        #else
+        let input = makeJPEGWithMetadata(appSegments: [(0xE1, Array("Exif\0\0GPS:1,2".utf8))])
+        #endif
+        let backup = try LibraryBackup(library: ReceiptLibrary(drafts: [draft]), images: [draft.id: input])
+        let output = try #require(backup.files()[draft.id.uuidString + ".jpg"])
+        #expect(ReferenceImageSandbox.detectFormat(output) == .jpeg)
+        #expect(!containsMarkerSegment(output, marker: 0xE1))
+        #if !canImport(ImageIO)
+        #expect(!String(decoding: output, as: UTF8.self).contains("GPS:1,2"))
+        #endif
+        #expect(throws: (any Error).self) {
+            try LibraryBackup(library: ReceiptLibrary(drafts: [draft]), images: [draft.id: Data("not an image".utf8)])
+        }
+    }
+
     @Test func roundTripIncludesEmptyDraftAndFinalSnapshot() throws {
         let draft = ReceiptDraft(), snapshot = try reviewedReceipt()
         let backup = try LibraryBackup(library: ReceiptLibrary(drafts: [draft], snapshots: [snapshot]))

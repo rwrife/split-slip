@@ -40,13 +40,16 @@ public struct LibraryBackup: Sendable {
     public init(library: ReceiptLibrary, images: [UUID: Data] = [:]) throws {
         try library.validate()
         guard Set(images.keys).isSubset(of: library.receiptIDs) else { throw LibraryError.invalid("An image has no receipt.") }
-        guard images.values.allSatisfy({ !$0.isEmpty && $0.count <= ReferenceImageLimits.maximumEncodedBytes }) else {
-            throw LibraryError.invalid("An image is empty or too large.")
+        var sanitized: [UUID: Data] = [:], total = 0
+        for (id, bytes) in images {
+            // ponytail: repeat transcoding at public backup boundary; optimize only if a verified sanitized-image type exists.
+            let jpeg = try ReferenceImageSandbox.sanitize(bytes).jpeg
+            total += jpeg.count
+            guard total <= Self.maximumBytes else { throw LibraryError.invalid("Image data exceeds the backup size limit.") }
+            sanitized[id] = jpeg
         }
-        guard images.values.reduce(0, { $0 + $1.count }) <= Self.maximumBytes else {
-            throw LibraryError.invalid("Image data exceeds the backup size limit.")
-        }
-        self.library = library; self.images = images
+        self.library = library; self.images = sanitized
+        // Imported and programmatic backups share the same metadata-free boundary.
     }
 
     public func files() throws -> [String: Data] {
