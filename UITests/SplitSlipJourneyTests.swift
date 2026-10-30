@@ -492,7 +492,11 @@ final class SplitSlipJourneyTests: XCTestCase {
         home.name = "Home — dark accessibility text"; home.lifetime = .keepAlways; add(home)
         app.buttons["home.data"].tap()
         let backup = app.buttons["data.backup"]
-        XCTAssertTrue(reveal(backup)); backup.tap()
+        // Rewinding a modal List from its top edge dismisses the sheet;
+        // advance within it instead (same rule used for Restore below).
+        XCTAssertTrue(scrollUntil(rewind: false) { (try? backup.isHittable) == true },
+                      "Backup did not become hittable. AX: \(app.debugDescription)")
+        backup.tap()
         cancelFilePicker()
         let restore = app.buttons["data.restore"]
         // The backup row sits directly above restore. Rewinding the sheet
