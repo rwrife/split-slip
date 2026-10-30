@@ -133,7 +133,14 @@ public struct LibraryBackup: Sendable {
         let contents = try files()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
-            for (name, data) in contents { try data.write(to: folder.appendingPathComponent(name), options: .atomic) }
+            // ponytail: POSIX permissions are best-effort: Files providers may
+            // ignore chmod; keep the explicit export/privacy warning in the UI.
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            for (name, data) in contents {
+                let url = folder.appendingPathComponent(name)
+                try data.write(to: url, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            }
         } catch {
             try? FileManager.default.removeItem(at: folder)
             throw error

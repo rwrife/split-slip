@@ -129,6 +129,29 @@ struct LibraryBackupTests {
         #expect(throws: (any Error).self) { try damaged.validate() }
     }
 
+    @Test func writingBackupNeverOverwritesExistingFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let existing = root.appendingPathComponent("existing")
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        let sentinel = existing.appendingPathComponent("receipts.json")
+        try Data("original receipt".utf8).write(to: sentinel)
+        let backup = try LibraryBackup(library: ReceiptLibrary(drafts: [ReceiptDraft()]))
+        #expect(throws: (any Error).self) { try backup.write(to: existing) }
+        #expect(try Data(contentsOf: sentinel) == Data("original receipt".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: existing.path) == ["receipts.json"])
+
+        let newFolder = root.appendingPathComponent("new")
+        try backup.write(to: newFolder)
+        let folderMode = try #require(FileManager.default.attributesOfItem(atPath: newFolder.path)[.posixPermissions] as? NSNumber)
+        let fileMode = try #require(FileManager.default.attributesOfItem(atPath: newFolder.appendingPathComponent("receipts.json").path)[.posixPermissions] as? NSNumber)
+        #expect(folderMode.intValue & 0o077 == 0)
+        #expect(fileMode.intValue & 0o077 == 0)
+        #expect(try LibraryBackup.read(from: newFolder).library.drafts == backup.library.drafts)
+        #expect(throws: (any Error).self) { try backup.write(to: newFolder) }
+        #expect(try LibraryBackup.read(from: newFolder).library.drafts == backup.library.drafts)
+    }
+
     @Test func rejectsSymlinksAndOversizedFilesBeforeLoading() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
