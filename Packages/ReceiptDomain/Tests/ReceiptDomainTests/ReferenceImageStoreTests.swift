@@ -1,5 +1,10 @@
 import Foundation
 import Testing
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import ReceiptDomain
 
 /// Synthetic JPEG builder for deterministic, platform-independent tests.
@@ -88,6 +93,33 @@ struct ReferenceImageStoreTests {
         #expect(try Data(contentsOf: #require(try store.referenceImageURL(receiptID: destination))) == Data([5, 6]))
         // Source keeps its copy until the caller clears it explicitly.
         #expect(try store.referenceImageURL(receiptID: source) != nil)
+    }
+
+    @Test("copy refuses symlink, hard link, FIFO and oversized source without replacing destination")
+    func unsafeCopySources() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try LocalReferenceImageStore(rootDirectory: root)
+        let sourceID = UUID(), destinationID = UUID()
+        let source = root.appendingPathComponent(sourceID.uuidString + ".jpg")
+        let other = root.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: other) }
+        try store.setReferenceImage(Data([7]), receiptID: destinationID)
+        try store.setReferenceImage(Data([1]), receiptID: sourceID)
+        try FileManager.default.removeItem(at: source)
+        try Data([1]).write(to: other)
+        try FileManager.default.createSymbolicLink(at: source, withDestinationURL: other)
+        #expect(throws: (any Error).self) { try store.copyReference(from: sourceID, to: destinationID) }
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.linkItem(at: other, to: source)
+        #expect(throws: (any Error).self) { try store.copyReference(from: sourceID, to: destinationID) }
+        try FileManager.default.removeItem(at: source)
+        #expect(mkfifo(source.path, 0o600) == 0)
+        #expect(throws: (any Error).self) { try store.copyReference(from: sourceID, to: destinationID) }
+        try FileManager.default.removeItem(at: source)
+        try Data(count: ReferenceImageLimits.maximumEncodedBytes + 1).write(to: source)
+        #expect(throws: (any Error).self) { try store.copyReference(from: sourceID, to: destinationID) }
+        #expect(try Data(contentsOf: #require(try store.referenceImageURL(receiptID: destinationID))) == Data([7]))
     }
 
     @Test("each receipt keeps its own image; clearing one never touches another")

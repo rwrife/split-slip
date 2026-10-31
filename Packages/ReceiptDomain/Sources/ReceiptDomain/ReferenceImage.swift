@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Bounded limits for one optional receipt reference image (issue #4).
 public enum ReferenceImageLimits {
@@ -106,12 +111,17 @@ public final class LocalReferenceImageStore: ReferenceImageStore, @unchecked Sen
     public func copyReference(from sourceID: UUID, to destinationID: UUID) throws {
         guard sourceID != destinationID else { return }
         guard let source = try referenceImageURL(receiptID: sourceID) else { return }
-        let data: Data
-        do {
-            data = try Data(contentsOf: source)
-        } catch {
-            throw ReferenceImageError.storageFailed("copy read: \(error)")
+        // An owned path can be swapped after lookup. Open without following links
+        // or waiting on a FIFO; inspect the descriptor before reading any bytes.
+        let fd = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard fd >= 0 else { throw ReferenceImageError.storageFailed("copy source cannot be opened safely") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              info.st_nlink == 1, info.st_size >= 0, info.st_size <= ReferenceImageLimits.maximumEncodedBytes else {
+            throw ReferenceImageError.storageFailed("copy source is not a bounded regular file")
         }
+        let data = try handle.read(upToCount: ReferenceImageLimits.maximumEncodedBytes + 1) ?? Data()
         try setReferenceImage(data, receiptID: destinationID)
     }
 }
