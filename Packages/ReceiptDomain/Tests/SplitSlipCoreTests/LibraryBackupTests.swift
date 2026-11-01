@@ -44,6 +44,13 @@ struct LibraryBackupTests {
         #expect(csv.hasSuffix("\r\n"))
     }
 
+    @Test func allPersonCSVIncludesReceiptTotal() throws {
+        let snapshot = try reviewedReceipt()
+        let csv = ReceiptSummary.render(snapshot, format: .csv)
+        #expect(csv.contains("\"\",\"Receipt total\",10.01,\"USD\"\r\n"))
+        #expect(!ReceiptSummary.render(snapshot, personID: snapshot.participants[0].id, format: .csv)
+            .contains("\"Receipt total\""))
+    }
     @Test func programmaticBackupSanitizesImagesBeforeWriting() throws {
         let draft = ReceiptDraft()
         #if canImport(ImageIO)
