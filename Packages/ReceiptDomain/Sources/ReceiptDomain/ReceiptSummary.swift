@@ -13,9 +13,9 @@ public enum ReceiptSummary {
         case .text:
             var output = ["Split Slip · Reviewed split", "Currency: \(currency)", ""]
             for person in people {
-                output.append("\(person.participant.displayName): \(amount(person.totalMinorUnits)) \(currency)")
+                output.append("\(textLabel(person.participant.displayName)): \(amount(person.totalMinorUnits)) \(currency)")
                 for (id, label) in rows {
-                    if let share = person.rowShares[id] { output.append("  \(label): \(amount(share))") }
+                    if let share = person.rowShares[id] { output.append("  \(textLabel(label)): \(amount(share))") }
                 }
                 output.append("")
             }
@@ -44,10 +44,18 @@ public enum ReceiptSummary {
 
     private static func amount(_ value: Int64) -> String { MinorAmount(minorUnits: value).description }
 
-    /// Quote every text cell; neutralize formulas even behind whitespace/control characters.
+    // One physical line per user label; pasted control characters cannot spoof totals.
+    private static func textLabel(_ value: String) -> String {
+        value.components(separatedBy: .newlines.union(.controlCharacters)).joined(separator: " ")
+    }
+
+    /// Quote every text cell; neutralize formulas behind whitespace, controls, or invisible format scalars.
     static func cell(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
-        let dangerous = trimmed.first.map { "=+-@".contains($0) } ?? false
+        let prefix = value.unicodeScalars.drop {
+            CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0)
+                || $0.properties.generalCategory == .format
+        }
+        let dangerous = prefix.first.map { "=+-@".unicodeScalars.contains($0) } ?? false
         let protected = dangerous || value.first == "\t" || value.first == "\r" || value.first == "\n" ? "'" + value : value
         return "\"" + protected.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }

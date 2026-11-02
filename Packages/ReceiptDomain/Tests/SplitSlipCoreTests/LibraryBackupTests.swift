@@ -31,9 +31,9 @@ struct LibraryBackupTests {
         #expect(single.contains("Selected person total: 5.00 USD"))
     }
 
-    @Test(arguments: ["=SUM(A1:A2)", "+123", "-1+2", "@SUM(A1)", "  =CMD()", "\tFormula", "\r=cmd", "\n+1"])
+    @Test(arguments: ["=SUM(A1:A2)", "+123", "-1+2", "@SUM(A1)", "  =CMD()", "\tFormula", "\r=cmd", "\n+1", "\u{FEFF}=CMD()", "\u{200B}=CMD()", "\u{2060}@SUM(A1)", "\u{200D}+1", "\u{200C}-1", "\u{202E}=CMD()"])
     func formulaTextIsNeutralized(_ input: String) {
-        #expect(ReceiptSummary.cell(input).hasPrefix("\"'"))
+        #expect(Array(ReceiptSummary.cell(input).unicodeScalars.prefix(2)) == ["\"", "'"])
     }
 
     @Test func csvQuotesCommasNewlinesAndQuotes() throws {
@@ -42,6 +42,25 @@ struct LibraryBackupTests {
         #expect(csv.contains("\"Soup, \"\"shared\"\"\nwith bread\""))
         #expect(csv.contains(",5.01,\"USD\""))
         #expect(csv.hasSuffix("\r\n"))
+    }
+
+    @Test func textSummaryDoesNotLetNamesForgeReceiptTotals() throws {
+        let snapshot = try reviewedReceipt(name: "Ana\nReceipt total: 0.00 USD")
+        let text = ReceiptSummary.render(snapshot)
+        #expect(text.contains("Ana Receipt total: 0.00 USD: 5.01 USD"))
+        #expect(!text.contains("\nReceipt total: 0.00 USD\n"))
+        #expect(text.components(separatedBy: "Receipt total:").count == 3)
+        #expect(text.contains("Soup, \"shared\" with bread: 5.01"))
+        #expect(text.contains("\nReceipt total: 10.01 USD\n"))
+    }
+
+    @Test func renderedCSVNeutralizesInvisiblePrefixInPersonAndItem() throws {
+        let people = [ParticipantIdentity(displayName: "\u{200B}=LINK()")]
+        let line = ReceiptLine(label: "\u{FEFF}@CMD()", amount: MinorAmount(minorUnits: 1))
+        let snapshot = try ReceiptDraft(expectedTotal: line.amount, participants: people, lines: [line],
+            lineAllocations: [line.id: RowAllocation(shares: [.init(participantID: people[0].id, weight: 1)])]).finalize()
+        let csv = ReceiptSummary.render(snapshot, format: .csv)
+        #expect(csv.contains("\"'\u{200B}=LINK()\",\"'\u{FEFF}@CMD()\",0.01,\"USD\""))
     }
 
     @Test func allPersonCSVIncludesReceiptTotal() throws {
