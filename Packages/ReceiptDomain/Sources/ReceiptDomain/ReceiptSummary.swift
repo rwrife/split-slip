@@ -35,6 +35,9 @@ public enum ReceiptSummary {
                 }
                 output.append([cell(person.participant.displayName), cell("Person total"), amount(person.totalMinorUnits), cell(currency)].joined(separator: ","))
             }
+            if personID == nil {
+                output.append([cell(""), cell("Receipt total"), amount(snapshot.expectedTotal.minorUnits), cell(currency)].joined(separator: ","))
+            }
             return output.joined(separator: "\r\n") + "\r\n"
         }
     }
