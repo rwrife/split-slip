@@ -54,6 +54,14 @@ struct LibraryBackupTests {
         #expect(text.contains("\nReceipt total: 10.01 USD\n"))
     }
 
+    @Test func textSummaryCollapsesAdjacentInvisibleControls() throws {
+        let snapshot = try reviewedReceipt(name: "Ana\u{202E}xyz\u{202C}\u{200B}\u{2066}")
+        let text = ReceiptSummary.render(snapshot)
+        #expect(text.contains("Ana xyz: 5.01 USD"))
+        #expect(!text.unicodeScalars.contains { $0.properties.generalCategory == .format })
+        #expect(text.contains("\nReceipt total: 10.01 USD\n"))
+    }
+
     @Test func renderedCSVNeutralizesInvisiblePrefixInPersonAndItem() throws {
         let people = [ParticipantIdentity(displayName: "\u{200B}=LINK()")]
         let line = ReceiptLine(label: "\u{FEFF}@CMD()", amount: MinorAmount(minorUnits: 1))

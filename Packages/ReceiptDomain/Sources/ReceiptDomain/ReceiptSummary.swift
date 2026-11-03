@@ -46,7 +46,8 @@ public enum ReceiptSummary {
 
     // One physical line per user label; pasted control characters cannot spoof totals.
     private static func textLabel(_ value: String) -> String {
-        value.components(separatedBy: .newlines.union(.controlCharacters)).joined(separator: " ")
+        value.components(separatedBy: .newlines.union(.controlCharacters))
+            .filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Quote every text cell; neutralize formulas behind whitespace, controls, or invisible format scalars.
