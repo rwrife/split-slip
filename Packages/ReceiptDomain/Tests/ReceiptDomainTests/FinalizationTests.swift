@@ -32,6 +32,31 @@ struct FinalizationTests {
         return (draft, people, line1.id, line2.id)
     }
 
+    @Test("Duplicate row IDs cannot overwrite finalized shares")
+    func duplicateRowIDBlocks() throws {
+        let ann = person("Ann", 1)
+        let sharedID = UUID()
+        let line = ReceiptLine(id: sharedID, label: "Dinner", amount: MinorAmount(minorUnits: 100))
+        let second = ReceiptLine(id: sharedID, label: "Dessert", amount: MinorAmount(minorUnits: 200))
+        let adjustment = ReceiptAdjustment(id: sharedID, label: "Fee", amount: MinorAmount(minorUnits: 50))
+        let allocated = [sharedID: allocation([(ann, 1)])]
+        for (lines, adjustments, total) in [([line, second], [], 300), ([line], [adjustment], 150)] {
+            let draft = ReceiptDraft(expectedTotal: MinorAmount(minorUnits: Int64(total)),
+                participants: [ann], lines: lines, lineAllocations: allocated,
+                adjustments: adjustments, adjustmentAllocations: adjustments.isEmpty ? [:] : allocated)
+            #expect(throws: FinalizationError.invalidStructure(.duplicateRow(sharedID))) { try draft.finalize() }
+        }
+    }
+
+    @Test("Orphan allocations cannot be frozen into snapshots")
+    func orphanAllocationBlocks() throws {
+        let (draft, people, _, _) = try makeHappyDraft()
+        var orphan = draft
+        let unknown = UUID()
+        orphan.lineAllocations[unknown] = allocation([(people[0], 1)])
+        #expect(throws: FinalizationError.invalidStructure(.unknownAllocationRow(unknown))) { try orphan.finalize() }
+    }
+
     @Test("A fully reconciled receipt finalizes with exact person totals")
     func happyPath() throws {
         let (draft, _, _, _) = try makeHappyDraft()
