@@ -45,6 +45,8 @@ public enum DomainMessages {
             return "Too many participants (\(count), limit \(ReceiptLimits.maximumParticipantsPerReceipt))."
         case let .duplicateParticipant(id):
             return "Duplicate participant (\(id))."
+        case let .duplicateRow(id):
+            return "Duplicate receipt row (\(id))."
         case let .duplicateAllocationRecipient(id):
             return "A row assigns the same person twice (\(id))."
         case .emptyReceipt:
@@ -57,6 +59,8 @@ public enum DomainMessages {
             return "Adjustment amounts cannot be zero."
         case let .unknownAllocationParticipant(id):
             return "An allocation references an unknown person (\(id))."
+        case let .unknownAllocationRow(id):
+            return "An allocation references a missing row (\(id))."
         case let .weightOutOfRange(participant: _, weight: weight):
             return "Weights must be between \(ReceiptLimits.minimumShareWeight) and \(ReceiptLimits.maximumShareWeight) (got \(weight))."
         case let .totalOutOfBounds(minorUnitsMagnitude: magnitude):

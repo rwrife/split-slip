@@ -7,12 +7,14 @@ public enum ReceiptValidationError: Error, Hashable, Sendable {
     case tooManyAdjustments(count: Int)
     case tooManyParticipants(count: Int)
     case duplicateParticipant(UUID)
+    case duplicateRow(UUID)
     case duplicateAllocationRecipient(UUID)
     case emptyReceipt
     case emptyLineLabel
     case lineAmountNegative
     case adjustmentAmountZero
     case unknownAllocationParticipant(UUID)
+    case unknownAllocationRow(UUID)
     case weightOutOfRange(participant: UUID, weight: Int)
     case totalOutOfBounds(minorUnitsMagnitude: Int64)
 }
@@ -141,6 +143,16 @@ public struct ReceiptDraft: Identifiable, Hashable, Sendable, Codable {
         }
         guard !lines.isEmpty || !adjustments.isEmpty else {
             throw ReceiptValidationError.emptyReceipt
+        }
+        var rowIDs = Set<UUID>()
+        for rowID in lines.map(\.id) + adjustments.map(\.id) {
+            guard rowIDs.insert(rowID).inserted else { throw ReceiptValidationError.duplicateRow(rowID) }
+        }
+        for rowID in lineAllocations.keys where !lines.contains(where: { $0.id == rowID }) {
+            throw ReceiptValidationError.unknownAllocationRow(rowID)
+        }
+        for rowID in adjustmentAllocations.keys where !adjustments.contains(where: { $0.id == rowID }) {
+            throw ReceiptValidationError.unknownAllocationRow(rowID)
         }
         for line in lines {
             guard !line.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
