@@ -211,6 +211,9 @@ public final class LibraryTransfer {
         try backup.library.validate()
         let original = try self.backup()
         try FileManager.default.createDirectory(at: recoveryRoot, withIntermediateDirectories: true)
+        // Recovery copies contain the entire pre-restore library. Keep the
+        // enclosing directory private even when the process umask is permissive.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryRoot.path)
         let id = UUID(), affected = original.library.receiptIDs.union(backup.library.receiptIDs)
         let folder = recoveryRoot.appendingPathComponent(id.uuidString)
         try original.write(to: folder)
