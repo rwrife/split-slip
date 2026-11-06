@@ -242,6 +242,27 @@ struct LibraryBackupTests {
         #expect(try transfer.previousBackups().isEmpty)
     }
 
+    @MainActor @Test func restoreRejectsLinkedRecoveryRootWithoutWritingOutsideSandbox() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let destination = root.appendingPathComponent("external")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+        let sentinel = destination.appendingPathComponent("original.txt")
+        try Data("keep".utf8).write(to: sentinel)
+        let recovery = root.appendingPathComponent("recovery")
+        try FileManager.default.createSymbolicLink(at: recovery, withDestinationURL: destination)
+        let store = InMemoryReceiptStore(), draft = ReceiptDraft()
+        try store.saveDraft(draft)
+        let images = try LocalReferenceImageStore(rootDirectory: root.appendingPathComponent("images"))
+        let transfer = LibraryTransfer(store: store, images: images, continuity: InMemoryContinuityStore(), recoveryRoot: recovery)
+        let backup = try LibraryBackup(library: ReceiptLibrary())
+        #expect(throws: (any Error).self) { try transfer.restore(backup) }
+        #expect(try store.loadAllDrafts() == [draft])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == ["original.txt"])
+        #expect(try Data(contentsOf: sentinel) == Data("keep".utf8))
+    }
+
     @MainActor @Test func deleteAllAlsoRemovesDamagedOrphanPhotos() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

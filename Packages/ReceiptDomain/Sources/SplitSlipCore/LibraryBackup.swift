@@ -211,8 +211,17 @@ public final class LibraryTransfer {
         try backup.library.validate()
         let original = try self.backup()
         try FileManager.default.createDirectory(at: recoveryRoot, withIntermediateDirectories: true)
-        // Recovery copies contain the entire pre-restore library. Keep the
-        // enclosing directory private even when the process umask is permissive.
+        // Refuse an existing link before chmod or writing full-library recovery copies.
+        let recoveryFD = open(recoveryRoot.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard recoveryFD >= 0 else { throw LibraryError.invalid("Recovery folder cannot be opened safely.") }
+        defer { _ = close(recoveryFD) }
+        var opened = stat(), named = stat()
+        guard fstat(recoveryFD, &opened) == 0, lstat(recoveryRoot.path, &named) == 0,
+              opened.st_dev == named.st_dev, opened.st_ino == named.st_ino else {
+            throw LibraryError.invalid("Recovery folder changed before writing.")
+        }
+        // ponytail: app-owned parent is private; if another process can replace
+        // it concurrently, move recovery writes to openat on the pinned descriptor.
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryRoot.path)
         let id = UUID(), affected = original.library.receiptIDs.union(backup.library.receiptIDs)
         let folder = recoveryRoot.appendingPathComponent(id.uuidString)
