@@ -166,7 +166,8 @@ public final class LibraryTransfer {
     }
 
     public func backup() throws -> LibraryBackup {
-        guard !FileManager.default.fileExists(atPath: marker.path) else {
+        var markerInfo = stat()
+        guard lstat(marker.path, &markerInfo) != 0, errno == ENOENT else {
             throw LibraryError.invalid("A previous operation needs recovery. Close and reopen Split Slip before continuing.")
         }
         let library = try store.readLibrary()
@@ -196,8 +197,21 @@ public final class LibraryTransfer {
     }
 
     public func recoverIfNeeded() throws {
-        guard FileManager.default.fileExists(atPath: marker.path) else { return }
-        let pending = try JSONDecoder().decode(Pending.self, from: Data(contentsOf: marker))
+        var rootInfo = stat()
+        if lstat(recoveryRoot.path, &rootInfo) != 0 {
+            guard errno == ENOENT else { throw LibraryError.invalid("Recovery folder cannot be inspected safely.") }
+            return
+        }
+        guard (rootInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else {
+            throw LibraryError.invalid("Recovery folder is not a directory.")
+        }
+        var markerInfo = stat()
+        if lstat(marker.path, &markerInfo) != 0 {
+            guard errno == ENOENT else { throw LibraryError.invalid("Recovery marker cannot be inspected safely.") }
+            return
+        }
+        // A damaged marker must not follow links or allocate unbounded memory during startup recovery.
+        let pending = try JSONDecoder().decode(Pending.self, from: readRegularBackupFile(marker, limit: LibraryBackup.maximumJSONBytes))
         let original = try LibraryBackup.read(from: recoveryRoot.appendingPathComponent(pending.backupID.uuidString))
         try apply(original, affected: Set(pending.affectedIDs))
         for (id, selection) in pending.selections ?? [:] { continuity.saveSelection(selection, receiptID: id) }
