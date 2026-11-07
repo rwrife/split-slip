@@ -21,13 +21,17 @@ import UIKit
 /// flow through `.font(.body)`-family styles. No custom animations exist, so
 /// Reduce Motion has nothing to suppress.
 ///
-/// Future iPhone Duo: this view's surfaces map onto two native dual-screen
-/// safe regions ONLY when public APIs exist; see
-/// docs/issue-4-evidence.md (`ReceiptWorkspaceLayout` notes). No fold
-/// detection, no hinge assumptions, no iPad implementation.
+/// Future iPhone Duo: this view composes the same model-owned state into
+/// either compact tabs or an explicit two-surface layout
+/// (`ReceiptWorkspaceLayout`). Production supplies `.compact`; the two-surface
+/// composition is reached only through a simulator-only test input until a
+/// public platform API can explicitly provide dual safe regions. No fold
+/// detection, no hinge assumptions, no width inference, no iPad
+/// implementation. See docs/issue-14-evidence.md.
 struct ReceiptEditorView: View {
     @State private var model: ReceiptWorkspaceModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let layout: ReceiptWorkspaceLayout
     private let onClose: () -> Void
     @State private var showDeleteParticipantAlert = false
     @State private var pendingRemoval: (id: UUID, name: String, rows: [String])?
@@ -42,9 +46,11 @@ struct ReceiptEditorView: View {
     init(draft: ReceiptDraft, store: AnyReceiptStore,
          images: (any ReferenceImageStore)? = nil,
          continuity: (any ContinuityStore)? = nil,
+         layout: ReceiptWorkspaceLayout = .compact,
          onClose: @escaping () -> Void) {
         _model = State(initialValue: ReceiptWorkspaceModel(
             draft: draft, store: store, images: images, continuity: continuity))
+        self.layout = layout
         self.onClose = onClose
     }
 
@@ -66,16 +72,7 @@ struct ReceiptEditorView: View {
             }
             .padding(.horizontal).padding(.bottom, 8)
             .frame(maxWidth: .infinity).background(SlipStyle.canvas)
-            TabView(selection: Binding(
-                get: { model.selection.tab },
-                set: { model.selectTab($0) })) {
-                receiptTab
-                    .tabItem { Label("Receipt", systemImage: "list.bullet") }
-                    .tag(WorkspaceSelection.Tab.receipt)
-                peopleTab
-                    .tabItem { Label("People", systemImage: "person.2") }
-                    .tag(WorkspaceSelection.Tab.people)
-            }
+            workspaceSurfaces
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor.root")
@@ -151,6 +148,36 @@ struct ReceiptEditorView: View {
         }
         .onChange(of: finalizedSnapshotID, initial: false) { _, id in
             if id != nil { onClose() }
+        }
+    }
+
+    /// Composition only. The model remains the single owner of draft and
+    /// selection state, so changing between one- and two-surface layouts does
+    /// not copy, reset, or infer any state. `dualSurface` is currently reached
+    /// only by the simulator test harness; production remains compact until a
+    /// public platform API can explicitly identify two safe regions.
+    @ViewBuilder
+    private var workspaceSurfaces: some View {
+        switch layout.presentation {
+        case .compactTabs:
+            TabView(selection: Binding(
+                get: { model.selection.tab },
+                set: { model.selectTab($0) })) {
+                receiptTab
+                    .tabItem { Label("Receipt", systemImage: "list.bullet") }
+                    .tag(WorkspaceSelection.Tab.receipt)
+                peopleTab
+                    .tabItem { Label("People", systemImage: "person.2") }
+                    .tag(WorkspaceSelection.Tab.people)
+            }
+        case .dualSurface:
+            HStack(spacing: 0) {
+                receiptTab
+                Divider()
+                peopleTab
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("editor.dualSurface")
         }
     }
 
