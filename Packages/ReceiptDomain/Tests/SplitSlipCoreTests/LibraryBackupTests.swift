@@ -295,6 +295,32 @@ struct LibraryBackupTests {
         #expect(!FileManager.default.fileExists(atPath: recovery.appendingPathComponent("pending.json").path))
     }
 
+    @MainActor @Test func recoveryRejectsLinkedOrOversizedPendingMarkerWithoutChangingStore() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = InMemoryReceiptStore(), draft = ReceiptDraft()
+        try store.saveDraft(draft)
+        let recovery = root.appendingPathComponent("recovery")
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        let marker = recovery.appendingPathComponent("pending.json")
+        let outside = root.appendingPathComponent("outside.json")
+        try Data("not a pending operation".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(at: marker, withDestinationURL: outside)
+        let images = try LocalReferenceImageStore(rootDirectory: root.appendingPathComponent("images"))
+        let transfer = LibraryTransfer(store: store, images: images, continuity: InMemoryContinuityStore(), recoveryRoot: recovery)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(throws: LibraryError.self) { try transfer.backup() }
+        #expect(try store.loadAllDrafts() == [draft])
+        try FileManager.default.removeItem(at: marker)
+        try FileManager.default.createSymbolicLink(at: marker, withDestinationURL: root.appendingPathComponent("missing"))
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(throws: LibraryError.self) { try transfer.backup() }
+        try FileManager.default.removeItem(at: marker)
+        try Data(repeating: 32, count: LibraryBackup.maximumJSONBytes + 1).write(to: marker)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(try store.loadAllDrafts() == [draft])
+    }
+
     @MainActor @Test func failedRestoreRecoversOriginalLibrary() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
