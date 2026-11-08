@@ -295,6 +295,40 @@ struct LibraryBackupTests {
         #expect(!FileManager.default.fileExists(atPath: recovery.appendingPathComponent("pending.json").path))
     }
 
+    @MainActor @Test func recoveryRejectsMarkerOmittingOriginalReceipts() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recovery = root.appendingPathComponent("recovery"), backupID = UUID()
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        let original = ReceiptDraft(), replacement = ReceiptDraft()
+        try LibraryBackup(library: ReceiptLibrary(drafts: [original])).write(to: recovery.appendingPathComponent(backupID.uuidString))
+        let marker = recovery.appendingPathComponent("pending.json")
+        let pending: [String: Any] = ["backupID": backupID.uuidString, "affectedIDs": [replacement.id.uuidString], "keepBackup": true]
+        try JSONSerialization.data(withJSONObject: pending).write(to: marker)
+        let store = InMemoryReceiptStore()
+        try store.saveDraft(replacement)
+        let images = try LocalReferenceImageStore(rootDirectory: root.appendingPathComponent("images"))
+        let transfer = LibraryTransfer(store: store, images: images, continuity: InMemoryContinuityStore(), recoveryRoot: recovery)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(try store.loadAllDrafts() == [replacement])
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @MainActor @Test func backupRefusesDanglingPendingMarker() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recovery = root.appendingPathComponent("recovery")
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        let marker = recovery.appendingPathComponent("pending.json")
+        try FileManager.default.createSymbolicLink(at: marker, withDestinationURL: root.appendingPathComponent("missing.json"))
+        let store = InMemoryReceiptStore(), draft = ReceiptDraft()
+        try store.saveDraft(draft)
+        let images = try LocalReferenceImageStore(rootDirectory: root.appendingPathComponent("images"))
+        let transfer = LibraryTransfer(store: store, images: images, continuity: InMemoryContinuityStore(), recoveryRoot: recovery)
+        #expect(throws: LibraryError.self) { try transfer.backup() }
+        #expect(try store.loadAllDrafts() == [draft])
+    }
+
     @MainActor @Test func recoveryRejectsLinkedOrOversizedPendingMarkerWithoutChangingStore() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

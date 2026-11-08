@@ -213,7 +213,15 @@ public final class LibraryTransfer {
         // A damaged marker must not follow links or allocate unbounded memory during startup recovery.
         let pending = try JSONDecoder().decode(Pending.self, from: readRegularBackupFile(marker, limit: LibraryBackup.maximumJSONBytes))
         let original = try LibraryBackup.read(from: recoveryRoot.appendingPathComponent(pending.backupID.uuidString))
-        try apply(original, affected: Set(pending.affectedIDs))
+        // Never roll back with a marker that omits an original receipt: its image
+        // would remain orphaned or be lost without recovery. Also cover receipts
+        // present after a partially completed replacement.
+        let affected = Set(pending.affectedIDs)
+        guard original.library.receiptIDs.isSubset(of: affected),
+              try store.readLibrary().receiptIDs.isSubset(of: affected) else {
+            throw LibraryError.invalid("Recovery marker omits receipts; original data remains untouched.")
+        }
+        try apply(original, affected: affected)
         for (id, selection) in pending.selections ?? [:] { continuity.saveSelection(selection, receiptID: id) }
         try FileManager.default.removeItem(at: marker)
         if !pending.keepBackup { try? FileManager.default.removeItem(at: recoveryRoot.appendingPathComponent(pending.backupID.uuidString)) }
