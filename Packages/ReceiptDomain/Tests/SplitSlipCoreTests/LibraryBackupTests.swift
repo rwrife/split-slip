@@ -186,6 +186,24 @@ struct LibraryBackupTests {
         #expect(try LibraryBackup.read(from: newFolder).library.drafts == backup.library.drafts)
     }
 
+    @Test func rejectsOversizedManifestBeforeParsing() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try LibraryBackup(library: ReceiptLibrary()).write(to: root)
+        // A manifest has a tighter bound than receipts.json. Refuse at the
+        // descriptor before reading 16 MB from a provider-controlled file.
+        let manifest = root.appendingPathComponent("manifest.json")
+        let handle = try FileHandle(forWritingTo: manifest)
+        try handle.truncate(atOffset: 100_001)
+        try handle.close()
+        do {
+            _ = try LibraryBackup.read(from: root)
+            Issue.record("Oversized manifest accepted")
+        } catch LibraryError.invalid(let reason) {
+            #expect(reason == "Backup contains a link, directory, or oversized file.")
+        }
+    }
+
     @Test func rejectsSymlinksAndOversizedFilesBeforeLoading() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
