@@ -120,7 +120,9 @@ public struct LibraryBackup: Sendable {
             // Do not trust path metadata after enumeration. The descriptor
             // check in `readRegularBackupFile` is authoritative and rejects
             // links, directories and oversized files at read time.
-            let limit = child.pathExtension == "json" ? maximumJSONBytes : ReferenceImageLimits.maximumEncodedBytes
+            let limit = child.lastPathComponent == "manifest.json" ? 100_000
+                : child.lastPathComponent == "receipts.json" ? maximumJSONBytes
+                : ReferenceImageLimits.maximumEncodedBytes
             let data = try readRegularBackupFile(child, limit: limit, directoryFD: rootFD)
             total += data.count
             guard total <= maximumBytes else { throw LibraryError.invalid("Backup exceeds 100 MB.") }
