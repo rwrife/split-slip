@@ -107,6 +107,7 @@ public enum ReferenceImageSandbox {
         var output: [UInt8] = [0xFF, 0xD8]
         var sawStartOfFrame = false
         var sawStartOfScan = false
+        var sawEndOfImage = false
         var i = 2
         while i + 1 < input.count {
             guard input[i] == 0xFF else { throw ReferenceImageError.failedVerification }
@@ -124,7 +125,9 @@ public enum ReferenceImageSandbox {
                 output.append(contentsOf: input[markerStart..<j + 1])
                 i = j + 1
             case 0xD9: // EOI
+                guard j == input.count - 1 else { throw ReferenceImageError.failedVerification }
                 output.append(contentsOf: [0xFF, 0xD9])
+                sawEndOfImage = true
                 i = input.count
             case 0xE0...0xEF, 0xFE: // APPn + COM: metadata → drop
                 guard j + 3 <= input.count else { throw ReferenceImageError.failedVerification }
@@ -133,28 +136,45 @@ public enum ReferenceImageSandbox {
                 let end = j + 1 + segmentLength
                 guard end <= input.count else { throw ReferenceImageError.failedVerification }
                 i = end
-            case 0xC0...0xCF: // SOFn family (C4/C8/CC are the extended variants)
+            case 0xC0...0xC3, 0xC5...0xC7, 0xC9...0xCB, 0xCD...0xCF: // SOFn only; C4/C8/CC are not frames.
                 try copySegment(input, from: markerStart, j: j, into: &output)
                 sawStartOfFrame = true
                 let segmentLength = (Int(input[j + 1]) << 8) | Int(input[j + 2])
                 i = j + 1 + segmentLength
-            case 0xDA: // SOS — header plus entropy-coded remainder copied raw
+            case 0xDA: // SOS — header plus entropy-coded scan data.
                 try copySegment(input, from: markerStart, j: j, into: &output)
                 let scanHeaderEnd = j + 1 + ((Int(input[j + 1]) << 8) | Int(input[j + 2]))
                 guard scanHeaderEnd < input.count else {
                     // SOS claiming to reach the end has no entropy data/EOI.
                     throw ReferenceImageError.failedVerification
                 }
-                output.append(contentsOf: input[scanHeaderEnd...])
+                var k = scanHeaderEnd
+                while k + 1 < input.count {
+                    if input[k] == 0xFF {
+                        let next = input[k + 1]
+                        if next == 0x00 || (0xD0...0xD7).contains(next) {
+                            // Byte-stuffed literal 0xFF or restart marker inside scan.
+                            k += 2
+                            continue
+                        }
+                        if next != 0xFF {
+                            // Hit the terminating marker for this scan.
+                            break
+                        }
+                    }
+                    k += 1
+                }
+                guard k + 1 < input.count else { throw ReferenceImageError.failedVerification }
+                output.append(contentsOf: input[scanHeaderEnd..<k])
                 sawStartOfScan = true
-                i = input.count
+                i = k
             default:
                 try copySegment(input, from: markerStart, j: j, into: &output)
                 let segmentLength = (Int(input[j + 1]) << 8) | Int(input[j + 2])
                 i = j + 1 + segmentLength
             }
         }
-        guard sawStartOfFrame, sawStartOfScan,
+        guard sawStartOfFrame, sawStartOfScan, sawEndOfImage,
               output.count > 4, output[0] == 0xFF, output[1] == 0xD8,
               output[output.count - 2] == 0xFF, output[output.count - 1] == 0xD9
         else { throw ReferenceImageError.failedVerification }
