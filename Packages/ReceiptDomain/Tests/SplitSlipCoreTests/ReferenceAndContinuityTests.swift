@@ -65,7 +65,6 @@ struct ReferenceImageSandboxTests {
     @Test("JPEG EXIF/GPS/XMP/comment metadata is structurally removed")
     func jpegMetadataStripped() throws {
         let exifPayload = Array("Exif\0\0GPS:37.7749,-122.4194;camera=iPhone;owner=rwrife".utf8)
-        let xmpPayload = Array("<xmp:CreatorTool>Leaked</xmp:CreatorTool>".utf8)
         let input = makeJPEGWithMetadata(appSegments: [
             (0xE0, Array("JFIF\0".utf8) + [1, 2]),        // JFIF (kept content is metadata too)
             (0xE1, exifPayload),                          // EXIF + GPS
@@ -91,6 +90,42 @@ struct ReferenceImageSandboxTests {
         #expect(!text.contains("Leaked"))
         #expect(!text.contains("private note"))
         #expect(!text.contains("Photoshop"))
+    }
+
+    @Test("JPEG metadata between scans is removed without losing scan data")
+    func metadataBetweenScans() throws {
+        var bytes = [UInt8](makeJPEGWithMetadata(appSegments: []))
+        bytes.removeLast(2) // Replace EOI with metadata, second scan, EOI.
+        let metadata = Array("Exif\0\0GPS:private".utf8)
+        bytes += [0xFF, 0xE1, 0, UInt8(metadata.count + 2)] + metadata
+        bytes += [0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 63, 0, 0x23, 0xFF, 0x00, 0x45, 0xFF, 0xD9]
+        let cleaned = try ReferenceImageSandbox.stripJPEGMetadata(Data(bytes))
+        #expect(!String(decoding: cleaned, as: UTF8.self).contains("GPS:private"))
+        #expect(!containsMarkerSegment(cleaned, marker: 0xE1))
+        #expect([UInt8](cleaned.suffix(16)) == [0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 63, 0, 0x23, 0xFF, 0x00, 0x45, 0xFF, 0xD9])
+    }
+
+    @Test("Huffman table alone does not count as a start-of-frame")
+    func huffmanIsNotFrame() {
+        let bytes: [UInt8] = [0xFF, 0xD8, 0xFF, 0xC4, 0, 3, 0,
+            0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 63, 0, 0x23, 0xFF, 0xD9]
+        #expect(throws: ReferenceImageError.failedVerification) {
+            _ = try ReferenceImageSandbox.stripJPEGMetadata(Data(bytes))
+        }
+    }
+
+    @Test("JPEG trailing bytes and incomplete scan are refused")
+    func trailingDataIsRejected() {
+        let valid = [UInt8](makeJPEGWithMetadata(appSegments: []))
+        #expect(throws: ReferenceImageError.failedVerification) {
+            _ = try ReferenceImageSandbox.stripJPEGMetadata(Data(valid + Array("secret".utf8)))
+        }
+        #expect(throws: ReferenceImageError.failedVerification) {
+            _ = try ReferenceImageSandbox.stripJPEGMetadata(Data(valid + [0xFF, 0xD9]))
+        }
+        #expect(throws: ReferenceImageError.failedVerification) {
+            _ = try ReferenceImageSandbox.stripJPEGMetadata(Data(valid.dropLast(2)))
+        }
     }
 
     @Test("stripping is deterministic and idempotent")
