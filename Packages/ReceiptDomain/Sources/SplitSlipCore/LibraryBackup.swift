@@ -219,9 +219,11 @@ public final class LibraryTransfer {
         // would remain orphaned or be lost without recovery. Also cover receipts
         // present after a partially completed replacement.
         let affected = Set(pending.affectedIDs)
-        guard original.library.receiptIDs.isSubset(of: affected),
+        guard affected.count == pending.affectedIDs.count,
+              Set((pending.selections ?? [:]).keys).isSubset(of: affected),
+              original.library.receiptIDs.isSubset(of: affected),
               try store.readLibrary().receiptIDs.isSubset(of: affected) else {
-            throw LibraryError.invalid("Recovery marker omits receipts; original data remains untouched.")
+            throw LibraryError.invalid("Recovery marker has invalid receipt scope; original data remains untouched.")
         }
         try apply(original, affected: affected)
         for (id, selection) in pending.selections ?? [:] { continuity.saveSelection(selection, receiptID: id) }
