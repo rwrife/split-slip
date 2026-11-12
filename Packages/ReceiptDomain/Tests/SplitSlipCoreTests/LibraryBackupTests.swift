@@ -365,6 +365,33 @@ struct LibraryBackupTests {
         #expect(FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @MainActor @Test func recoveryRejectsMarkerWithoutBackupFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recovery = root.appendingPathComponent("recovery"), backupID = UUID()
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        let draft = ReceiptDraft()
+        let store = InMemoryReceiptStore()
+        try store.saveDraft(draft)
+        let images = try LocalReferenceImageStore(rootDirectory: root.appendingPathComponent("images"))
+        let continuity = InMemoryContinuityStore()
+        let transfer = LibraryTransfer(store: store, images: images, continuity: continuity, recoveryRoot: recovery)
+        let marker = recovery.appendingPathComponent("pending.json")
+        let missing: [String: Any] = ["backupID": backupID.uuidString, "affectedIDs": [draft.id.uuidString], "keepBackup": true]
+        try JSONSerialization.data(withJSONObject: missing).write(to: marker)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(try store.loadAllDrafts() == [draft])
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+
+        let external = root.appendingPathComponent("external")
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        let linkedBackup = recovery.appendingPathComponent(backupID.uuidString)
+        try FileManager.default.createSymbolicLink(at: linkedBackup, withDestinationURL: external)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(try store.loadAllDrafts() == [draft])
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @MainActor @Test func backupRefusesDanglingPendingMarker() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
