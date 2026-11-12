@@ -214,7 +214,11 @@ public final class LibraryTransfer {
         }
         // A damaged marker must not follow links or allocate unbounded memory during startup recovery.
         let pending = try JSONDecoder().decode(Pending.self, from: readRegularBackupFile(marker, limit: LibraryBackup.maximumJSONBytes))
-        let original = try LibraryBackup.read(from: recoveryRoot.appendingPathComponent(pending.backupID.uuidString))
+        let backupFolder = recoveryRoot.appendingPathComponent(pending.backupID.uuidString)
+        guard (try? backupFolder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])).map({ $0.isDirectory == true && $0.isSymbolicLink != true }) == true else {
+            throw LibraryError.invalid("Recovery backup folder is missing or unsafe; original data remains untouched.")
+        }
+        let original = try LibraryBackup.read(from: backupFolder)
         // Never roll back with a marker that omits an original receipt: its image
         // would remain orphaned or be lost without recovery. Also cover receipts
         // present after a partially completed replacement.
