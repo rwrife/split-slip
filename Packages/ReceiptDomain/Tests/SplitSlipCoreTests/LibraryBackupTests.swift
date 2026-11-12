@@ -332,6 +332,39 @@ struct LibraryBackupTests {
         #expect(FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @MainActor @Test func recoveryRejectsDuplicateIDsAndForeignSelections() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recovery = root.appendingPathComponent("recovery"), backupID = UUID()
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        let draft = ReceiptDraft(), foreign = UUID()
+        try LibraryBackup(library: ReceiptLibrary(drafts: [draft])).write(to: recovery.appendingPathComponent(backupID.uuidString))
+        let store = InMemoryReceiptStore()
+        try store.saveDraft(draft)
+        let images = try LocalReferenceImageStore(rootDirectory: root.appendingPathComponent("images"))
+        let continuity = InMemoryContinuityStore()
+        let transfer = LibraryTransfer(store: store, images: images, continuity: continuity, recoveryRoot: recovery)
+        let marker = recovery.appendingPathComponent("pending.json")
+        let duplicate: [String: Any] = ["backupID": backupID.uuidString, "affectedIDs": [draft.id.uuidString, draft.id.uuidString], "keepBackup": true]
+        try JSONSerialization.data(withJSONObject: duplicate).write(to: marker)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(try store.loadAllDrafts() == [draft])
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        struct Marker: Encodable {
+            let backupID: UUID
+            let affectedIDs: [UUID]
+            let keepBackup: Bool
+            let selections: [UUID: WorkspaceSelection]
+        }
+        let foreignSelection = Marker(backupID: backupID, affectedIDs: [draft.id], keepBackup: true,
+                                      selections: [foreign: WorkspaceSelection(referenceZoom: 2)])
+        try JSONEncoder().encode(foreignSelection).write(to: marker, options: .atomic)
+        #expect(throws: LibraryError.self) { try transfer.recoverIfNeeded() }
+        #expect(continuity.loadSelection(receiptID: foreign) == nil)
+        #expect(try store.loadAllDrafts() == [draft])
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @MainActor @Test func backupRefusesDanglingPendingMarker() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
