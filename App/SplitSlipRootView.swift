@@ -199,11 +199,18 @@ struct SplitSlipRootView: View {
         switch route {
         case let .draft(id):
             if let draft = (try? store.loadDraft(id: id)) {
-                ReceiptEditorView(draft: draft, store: store, images: images, continuity: continuity, onClose: {
-                    // A correction fork unwinds all the way to home; a plain
-                    // draft returns to wherever it was opened from.
-                    if draft.correctionOfSnapshotID != nil { popAll() } else { popOne() }
-                })
+                ReceiptEditorView(
+                    draft: draft,
+                    store: store,
+                    images: images,
+                    continuity: continuity,
+                    layout: workspaceLayout,
+                    onClose: {
+                        // A correction fork unwinds all the way to home; a plain
+                        // draft returns to wherever it was opened from.
+                        if draft.correctionOfSnapshotID != nil { popAll() } else { popOne() }
+                    }
+                )
             } else {
                 ContentUnavailableView("Draft no longer exists", systemImage: "questionmark.circle")
             }
@@ -216,6 +223,18 @@ struct SplitSlipRootView: View {
                 ContentUnavailableView("Finalized receipt no longer exists", systemImage: "questionmark.circle")
             }
         }
+    }
+
+    /// No release path enables two-surface mode. This simulator-only input
+    /// lets native CI exercise the composition without pretending a window
+    /// width, device name, or private API proves dual-screen capability.
+    private var workspaceLayout: ReceiptWorkspaceLayout {
+        #if targetEnvironment(simulator)
+        if CommandLine.arguments.contains("-ui-testing-dual-surface") {
+            return .dualSurface
+        }
+        #endif
+        return .compact
     }
 
     private func receiptTitle(_ lines: [ReceiptLine]) -> String {
